@@ -1253,6 +1253,15 @@ class Translations$bookshelf$zh_CN {
 	/// zh-CN: '$count 个文件夹'
 	String searchFolderResultCount({required Object count}) => '${count} 个文件夹';
 
+	/// zh-CN: '更换封面'
+	String get changeFolderCover => '更换封面';
+
+	/// zh-CN: '自动（使用最新加入的漫画）'
+	String get folderCoverAuto => '自动（使用最新加入的漫画）';
+
+	/// zh-CN: '该文件夹里还没有漫画'
+	String get folderCoverEmpty => '该文件夹里还没有漫画';
+
 	/// zh-CN: '确认删除'
 	String get confirmDeleteFolderTitle => '确认删除';
 
@@ -4698,6 +4707,9 @@ extension on Translations {
 			'bookshelf.searchFolderHint' => '搜索文件夹名称或路径',
 			'bookshelf.noFolderMatch' => '没有匹配的文件夹',
 			'bookshelf.searchFolderResultCount' => ({required Object count}) => '${count} 个文件夹',
+			'bookshelf.changeFolderCover' => '更换封面',
+			'bookshelf.folderCoverAuto' => '自动（使用最新加入的漫画）',
+			'bookshelf.folderCoverEmpty' => '该文件夹里还没有漫画',
 			'bookshelf.confirmDeleteFolderTitle' => '确认删除',
 			'bookshelf.confirmDeleteFolderContent' => '确定要删除该文件夹吗？文件夹内的内容会被递归删除。',
 			'bookshelf.confirmRemoveComicTitle' => '从文件夹移除',

@@ -21,6 +21,8 @@ import 'package:zephyr/page/bookshelf/method/method.dart';
 import 'package:zephyr/page/bookshelf/models/models.dart';
 import 'package:zephyr/page/bookshelf/service/comic_folder_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
+import 'package:zephyr/page/bookshelf/service/folder_cover_service.dart';
+import 'package:zephyr/page/bookshelf/widgets/folder_cover_picker.dart';
 import 'package:zephyr/page/bookshelf/widgets/folder_target_picker.dart';
 import 'package:zephyr/page/bookshelf/widgets/bookshelf_empty_view.dart';
 import 'package:zephyr/page/bookshelf/widgets/bookshelf_grid_shimmer.dart';
@@ -105,6 +107,12 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
     if (_isDesktop) {
       HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     }
+    // 文件夹封面覆盖记录是异步读文件的，读完刷新一次让卡片换上用户选的封面。
+    unawaited(
+      FolderCoverService.instance.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
   }
 
   @override
@@ -824,6 +832,11 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
           title: Text(t.bookshelf.moveTo),
         ),
         FluentPopupMenuItem(
+          value: 'cover',
+          leading: const Icon(Icons.image_outlined),
+          title: Text(t.bookshelf.changeFolderCover),
+        ),
+        FluentPopupMenuItem(
           value: 'delete',
           leading: const Icon(Icons.delete_outline),
           title: Text(t.common.delete),
@@ -848,11 +861,25 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                 },
               ),
             );
+          case 'cover':
+            unawaited(_chooseFolderCover(context, folder));
           case 'delete':
             _confirmDeleteSingleFolder(context, folderPath);
         }
       },
     );
+  }
+
+  /// 选择文件夹封面：从文件夹内的漫画里挑一本，或恢复「自动」。
+  Future<void> _chooseFolderCover(
+    BuildContext context,
+    ComicFolder folder,
+  ) async {
+    final choice = await showFolderCoverPicker(context, folder: folder);
+    if (choice == null) return;
+    await FolderCoverService.instance.setOverride(folder.syncId, choice.info);
+    if (!context.mounted) return;
+    context.read<FolderShelfBloc>().add(const FolderShelfLoadRequested());
   }
 
   Future<void> _confirmDeleteSingleFolder(
@@ -1259,6 +1286,7 @@ class _ShelfFolderEntry extends StatelessWidget {
       isSelected: isSelected,
       detailed: detailed,
       comicCount: comicCount,
+      coverInfo: FolderCoverService.instance.coverFor(folder),
       onTap: selectionMode
           ? () => context.read<FolderShelfBloc>().add(
               FolderShelfToggleFolderSelection(folderPath),

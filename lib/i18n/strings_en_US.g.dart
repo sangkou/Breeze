@@ -504,6 +504,9 @@ class _Translations$bookshelf$en_US extends Translations$bookshelf$zh_CN {
 	@override String get searchFolderHint => 'Search folder name or path';
 	@override String get noFolderMatch => 'No matching folders';
 	@override String searchFolderResultCount({required Object count}) => '${count} folders';
+	@override String get changeFolderCover => 'Change cover';
+	@override String get folderCoverAuto => 'Auto (newest comic)';
+	@override String get folderCoverEmpty => 'No comics in this folder yet';
 	@override String get confirmDeleteFolderTitle => 'Confirm delete';
 	@override String get confirmDeleteFolderContent => 'Delete this folder? Contents will be deleted recursively.';
 	@override String get confirmRemoveComicTitle => 'Remove from folder';
@@ -2093,6 +2096,9 @@ extension on TranslationsEnUs {
 			'bookshelf.searchFolderHint' => 'Search folder name or path',
 			'bookshelf.noFolderMatch' => 'No matching folders',
 			'bookshelf.searchFolderResultCount' => ({required Object count}) => '${count} folders',
+			'bookshelf.changeFolderCover' => 'Change cover',
+			'bookshelf.folderCoverAuto' => 'Auto (newest comic)',
+			'bookshelf.folderCoverEmpty' => 'No comics in this folder yet',
 			'bookshelf.confirmDeleteFolderTitle' => 'Confirm delete',
 			'bookshelf.confirmDeleteFolderContent' => 'Delete this folder? Contents will be deleted recursively.',
 			'bookshelf.confirmRemoveComicTitle' => 'Remove from folder',

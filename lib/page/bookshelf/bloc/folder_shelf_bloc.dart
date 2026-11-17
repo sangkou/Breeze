@@ -12,6 +12,7 @@ import 'package:zephyr/page/bookshelf/cubit/search_status.dart';
 import 'package:zephyr/page/bookshelf/models/shelf_page_mode.dart';
 import 'package:zephyr/page/bookshelf/service/comic_folder_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
+import 'package:zephyr/page/bookshelf/service/folder_cover_service.dart';
 import 'package:zephyr/util/rust_loader.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 import 'package:zephyr/page/bookshelf/bloc/folder_shelf_event.dart';
@@ -57,6 +58,8 @@ class FolderShelfBloc extends Bloc<FolderShelfEvent, FolderShelfState> {
     Emitter<FolderShelfState> emit,
   ) async {
     emit(state.copyWith(isLoading: true, error: null));
+    // 自动封面取决于文件夹里的漫画，重新加载时清掉缓存。
+    FolderCoverService.instance.clearAutoCache();
     try {
       final search = event.search ?? state.search;
       final currentMode = state.mode;
