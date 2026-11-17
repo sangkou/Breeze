@@ -126,7 +126,7 @@ class FolderCoverService {
   /// 文件夹里的漫画（按加入时间倒序），供封面选择弹窗使用。
   List<ComicSimplifyEntryInfo> comicsInFolder(ComicFolder folder) {
     final result = <ComicSimplifyEntryInfo>[];
-    final query = _linksQuery(folder).build();
+    final query = _linksQuery(folder);
     try {
       for (final link in query.find()) {
         final info = _resolveEntry(link.comicUniqueKey, folder.type);
@@ -140,7 +140,7 @@ class FolderCoverService {
 
   ComicSimplifyEntryInfo? _firstComicInFolder(ComicFolder folder) {
     try {
-      final query = _linksQuery(folder).build();
+      final query = _linksQuery(folder);
       try {
         final link = query.findFirst();
         if (link == null) return null;
@@ -162,7 +162,8 @@ class FolderCoverService {
               .and(ComicLink_.typeData.equals(folder.typeData))
               .and(ComicLink_.deletedAt.isNull()),
         )
-        .order(ComicLink_.createdAt, flags: Order.descending);
+        .order(ComicLink_.createdAt, flags: Order.descending)
+        .build();
   }
 
   /// 把漫画唯一键解析成条目信息；与书架 bloc 里的解析保持同一套规则。
