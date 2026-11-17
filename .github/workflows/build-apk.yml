@@ -16,7 +16,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -111,3 +111,24 @@ jobs:
           name: breeze-apk-${{ github.run_number }}
           if-no-files-found: error
           path: build/app/outputs/flutter-apk/*.apk
+
+      # Artifact 的下载链接带鉴权，镜像加速用不了；同时挂一份到 Release，
+      # 就能走 ghproxy 之类的镜像直接下单个 APK。
+      - name: 发布到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="apk-build-${{ github.run_number }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" build/app/outputs/flutter-apk/*.apk --clobber
+          else
+            gh release create "$TAG" \
+              --title "APK build #${{ github.run_number }}" \
+              --notes "自动构建产物（debug 签名），提交 ${{ github.sha }}" \
+              --prerelease \
+              build/app/outputs/flutter-apk/*.apk
+          fi
+          echo "下载地址（国内可加镜像前缀 https://ghproxy.net/）："
+          for apk in build/app/outputs/flutter-apk/*.apk; do
+            echo "  https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$apk")"
+          done
