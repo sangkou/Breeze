@@ -86,7 +86,13 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs["release"]
+            // 没有 key.properties（Fork 仓库 / CI 未解密签名文件）时回退 debug 签名：
+            // 否则 release 签名配置的 storeFile 为 null，Gradle 会在签名阶段直接失败。
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

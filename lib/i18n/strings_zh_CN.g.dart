@@ -1244,6 +1244,15 @@ class Translations$bookshelf$zh_CN {
 	/// zh-CN: '选择目标文件夹（可多选）'
 	String get selectTargetFolder => '选择目标文件夹（可多选）';
 
+	/// zh-CN: '搜索文件夹名称或路径'
+	String get searchFolderHint => '搜索文件夹名称或路径';
+
+	/// zh-CN: '没有匹配的文件夹'
+	String get noFolderMatch => '没有匹配的文件夹';
+
+	/// zh-CN: '$count 个文件夹'
+	String searchFolderResultCount({required Object count}) => '${count} 个文件夹';
+
 	/// zh-CN: '确认删除'
 	String get confirmDeleteFolderTitle => '确认删除';
 
@@ -4686,6 +4695,9 @@ extension on Translations {
 			'bookshelf.selectedCount' => ({required Object count}) => '已选择 ${count} 项',
 			'bookshelf.folderComicCount' => ({required Object count}) => '${count} 本',
 			'bookshelf.selectTargetFolder' => '选择目标文件夹（可多选）',
+			'bookshelf.searchFolderHint' => '搜索文件夹名称或路径',
+			'bookshelf.noFolderMatch' => '没有匹配的文件夹',
+			'bookshelf.searchFolderResultCount' => ({required Object count}) => '${count} 个文件夹',
 			'bookshelf.confirmDeleteFolderTitle' => '确认删除',
 			'bookshelf.confirmDeleteFolderContent' => '确定要删除该文件夹吗？文件夹内的内容会被递归删除。',
 			'bookshelf.confirmRemoveComicTitle' => '从文件夹移除',

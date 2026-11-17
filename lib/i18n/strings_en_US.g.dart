@@ -501,6 +501,9 @@ class _Translations$bookshelf$en_US extends Translations$bookshelf$zh_CN {
 	@override String selectedCount({required Object count}) => 'Selected ${count} items';
 	@override String folderComicCount({required Object count}) => '${count} items';
 	@override String get selectTargetFolder => 'Select target folders (multiple)';
+	@override String get searchFolderHint => 'Search folder name or path';
+	@override String get noFolderMatch => 'No matching folders';
+	@override String searchFolderResultCount({required Object count}) => '${count} folders';
 	@override String get confirmDeleteFolderTitle => 'Confirm delete';
 	@override String get confirmDeleteFolderContent => 'Delete this folder? Contents will be deleted recursively.';
 	@override String get confirmRemoveComicTitle => 'Remove from folder';
@@ -2087,6 +2090,9 @@ extension on TranslationsEnUs {
 			'bookshelf.selectedCount' => ({required Object count}) => 'Selected ${count} items',
 			'bookshelf.folderComicCount' => ({required Object count}) => '${count} items',
 			'bookshelf.selectTargetFolder' => 'Select target folders (multiple)',
+			'bookshelf.searchFolderHint' => 'Search folder name or path',
+			'bookshelf.noFolderMatch' => 'No matching folders',
+			'bookshelf.searchFolderResultCount' => ({required Object count}) => '${count} folders',
 			'bookshelf.confirmDeleteFolderTitle' => 'Confirm delete',
 			'bookshelf.confirmDeleteFolderContent' => 'Delete this folder? Contents will be deleted recursively.',
 			'bookshelf.confirmRemoveComicTitle' => 'Remove from folder',
