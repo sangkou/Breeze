@@ -388,6 +388,8 @@
     "changeFolderCover": "Change cover",
     "folderCoverAuto": "Auto (newest comic)",
     "folderCoverEmpty": "No comics in this folder yet",
+    "display": "Display",
+    "hideFolders": "Hide folders",
     "confirmDeleteFolderTitle": "Confirm delete",
     "confirmDeleteFolderContent": "Delete this folder? Contents will be deleted recursively.",
     "confirmRemoveComicTitle": "Remove from folder",

@@ -1262,6 +1262,12 @@ class Translations$bookshelf$zh_CN {
 	/// zh-CN: '该文件夹里还没有漫画'
 	String get folderCoverEmpty => '该文件夹里还没有漫画';
 
+	/// zh-CN: '显示'
+	String get display => '显示';
+
+	/// zh-CN: '不显示文件夹'
+	String get hideFolders => '不显示文件夹';
+
 	/// zh-CN: '确认删除'
 	String get confirmDeleteFolderTitle => '确认删除';
 
@@ -4710,6 +4716,8 @@ extension on Translations {
 			'bookshelf.changeFolderCover' => '更换封面',
 			'bookshelf.folderCoverAuto' => '自动（使用最新加入的漫画）',
 			'bookshelf.folderCoverEmpty' => '该文件夹里还没有漫画',
+			'bookshelf.display' => '显示',
+			'bookshelf.hideFolders' => '不显示文件夹',
 			'bookshelf.confirmDeleteFolderTitle' => '确认删除',
 			'bookshelf.confirmDeleteFolderContent' => '确定要删除该文件夹吗？文件夹内的内容会被递归删除。',
 			'bookshelf.confirmRemoveComicTitle' => '从文件夹移除',

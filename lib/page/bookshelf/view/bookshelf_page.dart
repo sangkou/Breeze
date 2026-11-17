@@ -6,6 +6,7 @@ import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/cubit/plugin_registry_cubit.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/page/bookshelf/bookshelf.dart';
+import 'package:zephyr/page/bookshelf/service/bookshelf_view_pref_service.dart';
 import 'package:zephyr/page/search/widget/search_input_dialog.dart';
 import 'package:zephyr/plugin/plugin_registry_service.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
@@ -443,6 +444,9 @@ class _BookshelfPageContentState extends State<_BookshelfPageContent>
         initialSources: selectedSources,
         availableSources: availableSources,
         sourceOptions: sourceOptions,
+        initialHideFolders: BookshelfViewPrefService.instance.hideFolders(
+          currentMode,
+        ),
       ),
     );
 
@@ -450,6 +454,10 @@ class _BookshelfPageContentState extends State<_BookshelfPageContent>
 
     searchCubit.setSort(currentMode, result.sort);
     _maybePersistSort(currentMode, result.sort);
+    await BookshelfViewPrefService.instance.setHideFolders(
+      currentMode,
+      result.hideFolders,
+    );
 
     final nextSources = result.sources.toList();
     searchCubit.setSources(currentMode, nextSources);
@@ -517,6 +525,7 @@ class _BookshelfFilterDialog extends StatefulWidget {
     required this.initialSources,
     required this.availableSources,
     required this.sourceOptions,
+    required this.initialHideFolders,
   });
 
   final ShelfPageMode mode;
@@ -524,6 +533,7 @@ class _BookshelfFilterDialog extends StatefulWidget {
   final Set<String> initialSources;
   final List<String> availableSources;
   final List<_FilterSourceOption> sourceOptions;
+  final bool initialHideFolders;
 
   @override
   State<_BookshelfFilterDialog> createState() => _BookshelfFilterDialogState();
@@ -532,6 +542,7 @@ class _BookshelfFilterDialog extends StatefulWidget {
 class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
   late String _selectedSort;
   late Set<String> _selectedSources;
+  late bool _hideFolders;
 
   bool get _isFavoriteMode => widget.mode == ShelfPageMode.favorite;
   bool get _isDownloadMode => widget.mode == ShelfPageMode.download;
@@ -541,6 +552,7 @@ class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
     super.initState();
     _selectedSort = widget.initialSort;
     _selectedSources = Set<String>.from(widget.initialSources);
+    _hideFolders = widget.initialHideFolders;
   }
 
   @override
@@ -555,6 +567,8 @@ class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildSortSection(context),
+              const SizedBox(height: 16),
+              _buildDisplaySection(context),
               const SizedBox(height: 16),
               _buildSourceSection(context),
             ],
@@ -571,6 +585,7 @@ class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
             _BookshelfFilterResult(
               sort: _selectedSort,
               sources: _selectedSources,
+              hideFolders: _hideFolders,
             ),
           ),
           child: Text(t.common.apply),
@@ -616,6 +631,25 @@ class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
               ),
             ],
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDisplaySection(BuildContext context) {
+    // 历史页没有文件夹体系，不显示这个开关。
+    if (widget.mode == ShelfPageMode.history) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(t.bookshelf.display, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: _hideFolders,
+          onChanged: (value) => setState(() => _hideFolders = value),
+          title: Text(t.bookshelf.hideFolders),
         ),
       ],
     );
@@ -674,11 +708,15 @@ class _BookshelfFilterDialogState extends State<_BookshelfFilterDialog> {
 }
 
 class _BookshelfFilterResult {
-  _BookshelfFilterResult({required this.sort, required Set<String> sources})
-    : sources = Set<String>.from(sources);
+  _BookshelfFilterResult({
+    required this.sort,
+    required Set<String> sources,
+    required this.hideFolders,
+  }) : sources = Set<String>.from(sources);
 
   final String sort;
   final Set<String> sources;
+  final bool hideFolders;
 }
 
 class _FilterSourceOption {

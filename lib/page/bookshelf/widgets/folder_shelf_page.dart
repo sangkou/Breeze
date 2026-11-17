@@ -19,6 +19,7 @@ import 'package:zephyr/page/bookshelf/cubit/bookshelf_search_cubit.dart';
 import 'package:zephyr/page/bookshelf/cubit/search_status.dart';
 import 'package:zephyr/page/bookshelf/method/method.dart';
 import 'package:zephyr/page/bookshelf/models/models.dart';
+import 'package:zephyr/page/bookshelf/service/bookshelf_view_pref_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_folder_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
 import 'package:zephyr/page/bookshelf/service/folder_cover_service.dart';
@@ -113,10 +114,18 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
         if (mounted) setState(() {});
       }),
     );
+    // 「不显示文件夹」这类显示偏好变了要即时反映到列表上。
+    BookshelfViewPrefService.instance.addListener(_onViewPrefChanged);
+    unawaited(BookshelfViewPrefService.instance.ensureLoaded());
+  }
+
+  void _onViewPrefChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    BookshelfViewPrefService.instance.removeListener(_onViewPrefChanged);
     if (_isDesktop) {
       HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     }
@@ -514,8 +523,10 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
             final keyword = _normalizeSearchText(
               searchState.stateOf(state.mode).keyword,
             );
-            // 搜索时只展示漫画，不展示文件夹。
-            final filteredFolders = keyword.isEmpty
+            // 搜索时只展示漫画；筛选里开了「不显示文件夹」也一起隐藏。
+            final hideFolders =
+                BookshelfViewPrefService.instance.hideFolders(state.mode);
+            final filteredFolders = keyword.isEmpty && !hideFolders
                 ? state.folders
                 : <ComicFolder>[];
             final filteredComics = keyword.isEmpty
