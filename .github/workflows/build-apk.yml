@@ -114,6 +114,20 @@ jobs:
           path: ~/.android/debug.keystore
           key: android-debug-keystore-v1
 
+      # 配了 KEYSTORE_BASE64 / KEYSTORE_PROPS 就用固定签名；没配则回退 debug 签名。
+      - name: 应用固定签名（可选）
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PROPS: ${{ secrets.KEYSTORE_PROPS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PROPS" ]; then
+            echo "未配置签名 secret，继续使用 debug 签名"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/breeze-release.jks
+          printf '%s\n' "$KEYSTORE_PROPS" > android/key.properties
+          echo "已写入固定签名配置"
+
       # 只编 arm64：省掉另外两个 ABI 的 Rust 编译，构建时间约减半；
       # 2015 年后的安卓机都是 arm64。需要全架构时把 target-platform 去掉即可。
       - name: 构建 APK
