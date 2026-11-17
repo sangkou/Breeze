@@ -106,9 +106,19 @@ jobs:
           python3 script/android/build_ncnn_static_android.py
           python3 script/android/build_waifu2x_cli_android.py
 
+      # 固定签名：AGP 在缺省路径生成 debug.keystore，每次新 runner 都会重新生成，
+      # 导致每个 APK 签名不同、只能卸载重装。这里缓存同一个 keystore 复用。
+      - name: 缓存签名（保证每次构建签名一致）
+        uses: actions/cache@v5
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      # 只编 arm64：省掉另外两个 ABI 的 Rust 编译，构建时间约减半；
+      # 2015 年后的安卓机都是 arm64。需要全架构时把 target-platform 去掉即可。
       - name: 构建 APK
         run: |
-          fvm flutter build apk --release --split-per-abi --dart-define=sentry_dsn=
+          fvm flutter build apk --release --split-per-abi --target-platform=android-arm64 --dart-define=sentry_dsn=
 
       - name: 上传 APK
         uses: actions/upload-artifact@v6
