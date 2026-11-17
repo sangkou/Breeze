@@ -45,9 +45,16 @@ fun findRustlsPlatformVerifierProject(): String {
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+val keystorePropertiesLoaded = if (keystorePropertiesFile.exists()) {
+    // 未执行 git-crypt unlock 时，key.properties 是密文：文件存在但解析不出属性
+    runCatching {
+        keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+    }.isSuccess
+} else {
+    false
 }
+val hasReleaseSigning = keystorePropertiesLoaded &&
+    !keystoreProperties.getProperty("storeFile").isNullOrBlank()
 
 android {
     namespace = "com.zephyr.breeze"
@@ -86,9 +93,9 @@ android {
 
     buildTypes {
         release {
-            // 没有 key.properties（Fork 仓库 / CI 未解密签名文件）时回退 debug 签名：
-            // 否则 release 签名配置的 storeFile 为 null，Gradle 会在签名阶段直接失败。
-            signingConfig = if (keystorePropertiesFile.exists()) {
+            // 没有可用的签名材料（Fork 仓库 / CI 未解密签名文件）时回退 debug 签名：
+            // 否则 release 签名配置的 storeFile 为 null，Gradle 会在 validateSigningRelease 阶段失败。
+            signingConfig = if (hasReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
