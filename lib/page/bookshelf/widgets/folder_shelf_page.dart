@@ -102,6 +102,23 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
   /// 上次的路径：listener 里与新 state 比较，只在路径变化时回顶+置显 bar。
   /// error/选择模式变化走同一 listener，不能顺手把用户藏起来的 bar 弹出来。
   String? _lastPath;
+
+  /// 每个「模式+路径」的滚动位置。
+  ///
+  /// 换文件夹时列表会按路径重建（key 变化），滚动位置原生就归零；而返回时
+  /// bloc 先发「父目录路径 + 子文件夹内容」的中间态，此时内容长度不对，
+  /// 直接恢复会被夹成 0。所以这里自己记录偏移，等该路径的数据加载完再跳。
+  final ScrollController _shelfScrollController = ScrollController();
+  final Map<String, double> _shelfScrollOffsets = <String, double>{};
+  String? _pendingRestoreKey;
+  double _pendingRestoreOffset = 0;
+
+  /// 是否已经经历过「加载中」。
+  ///
+  /// 换路径后 bloc 会先发一帧「新路径 + 旧内容」的状态（isLoading 还是 false），
+  /// 这一帧不能恢复，否则会按旧内容的长度把位置夹成 0。必须等真正进入
+  /// loading 再结束，才说明拿到的是新路径的数据。
+  bool _pendingRestoreArmed = false;
   @override
   void initState() {
     super.initState();
@@ -130,6 +147,7 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
       HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     }
     _removeBackEntry();
+    _shelfScrollController.dispose();
     super.dispose();
   }
 
@@ -237,11 +255,12 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
     super.build(context);
     return BlocConsumer<FolderShelfBloc, FolderShelfState>(
       // 返回拦截 entry 与 error 提示共用 listener：error、选择模式、
-      // 路径变化都要同步 entry 的持有/释放。
+      // 路径变化、加载完成（用于恢复滚动位置）都要走这里。
       listenWhen: (previous, current) =>
           (current.error != null && current.error != previous.error) ||
           current.selectionMode != previous.selectionMode ||
-          current.currentPath != previous.currentPath,
+          current.currentPath != previous.currentPath ||
+          current.isLoading != previous.isLoading,
       listener: (context, state) {
         final error = state.error;
         if (error != null && error.isNotEmpty) {
@@ -254,7 +273,13 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
           // 靠 jumpTo 间接触发通知的链路不可靠（新列表替换/高度修正会吞掉
           // 那次通知），内容不够滑时 bar 会永远出不来。
           _setNavVisible(true);
+          // 记下要恢复到的位置，等这个路径的数据加载完再跳。
+          final key = _scrollKeyOf(state);
+          _pendingRestoreKey = key;
+          _pendingRestoreOffset = _shelfScrollOffsets[key] ?? 0;
+          _pendingRestoreArmed = false;
         }
+        _scheduleRestoreScroll(state);
         _syncBackEntry(state);
       },
       builder: (context, state) {
@@ -282,12 +307,46 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
     setState(() => _navVisible = visible);
   }
 
+  /// 滚动位置的存储 key：同一路径在收藏/下载/历史之间不共用。
+  String _scrollKeyOf(FolderShelfState state) =>
+      '${state.mode.name}|${state.currentPath}';
+
+  /// 等当前路径的数据加载完，再把列表跳回记录的位置。
+  ///
+  /// 关键是必须等 isLoading 结束：中途的中间态带着上一个文件夹的内容，
+  /// 此时 maxScrollExtent 不对，跳过去会被夹到 0。
+  void _scheduleRestoreScroll(FolderShelfState state) {
+    final key = _pendingRestoreKey;
+    if (key == null || key != _scrollKeyOf(state)) {
+      return;
+    }
+    if (state.isLoading) {
+      _pendingRestoreArmed = true;
+      return;
+    }
+    if (!_pendingRestoreArmed) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _pendingRestoreKey != key) return;
+      _pendingRestoreKey = null;
+      if (!_shelfScrollController.hasClients) return;
+      final target = _pendingRestoreOffset;
+      if (target <= 0) return;
+      final max = _shelfScrollController.position.maxScrollExtent;
+      _shelfScrollController.jumpTo(target.clamp(0.0, max).toDouble());
+    });
+  }
+
   /// 列表滚动方向联动悬浮物：上滑浏览时隐藏，下滑/回顶时显示。
   /// 只处理垂直主列表的通知，底部横向操作条不参与；不吞通知，RefreshIndicator 照常工作。
   bool _onGridScroll(ScrollNotification notification) {
-    if (notification.metrics.axis != Axis.vertical) {
+    if (!mounted || notification.metrics.axis != Axis.vertical) {
       return false;
     }
+    // 持续记录当前位置，离开文件夹时靠它还原。
+    _shelfScrollOffsets[_scrollKeyOf(context.read<FolderShelfBloc>().state)] =
+        notification.metrics.pixels;
     if (notification.metrics.pixels <= notification.metrics.minScrollExtent) {
       _setNavVisible(true);
     } else if (notification is ScrollUpdateNotification &&
@@ -602,16 +661,13 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                     MediaQuery.sizeOf(context).width - listPadding.horizontal,
                   )
                 : 1;
-            // 路径 key：换路径时列表 element 销毁重建，用 PageStorageKey 让 Flutter
-            // 按路径记住滚动位置——进文件夹再返回时回到原来的位置。
-            // key 里带上 mode，避免收藏/下载/历史三个页面的同名路径互相串位置。
-            // 同路径刷新（如下拉）key 不变，offset 保留。
-            final listStorageKey = PageStorageKey<String>(
-              'shelf-${state.mode.name}-${state.currentPath}',
-            );
+            // 路径 key：换路径时列表 element 销毁重建，避免旧内容残留；
+            // 滚动位置由 _shelfScrollController + _shelfScrollOffsets 负责还原。
+            final listKey = ValueKey('shelf-${state.mode.name}-${state.currentPath}');
             final shelfList = detailed
                 ? CustomScrollView(
-                    key: listStorageKey,
+                    key: listKey,
+                    controller: _shelfScrollController,
                     // 内容不足一屏时也要能下拉，否则 RefreshIndicator 收不到手势。
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
@@ -626,7 +682,8 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                     ],
                   )
                 : GridView.builder(
-                    key: listStorageKey,
+                    key: listKey,
+                    controller: _shelfScrollController,
                     // 内容不足一屏时也要能下拉，否则 RefreshIndicator 收不到手势。
                     physics: const AlwaysScrollableScrollPhysics(),
                     // 悬浮物盖在列表上层：子文件夹有面包屑浮栏，留 64px 顶部滚动边距；
