@@ -602,12 +602,16 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                     MediaQuery.sizeOf(context).width - listPadding.horizontal,
                   )
                 : 1;
-            // 路径 key：换路径时列表 element 销毁重建，原生 offset 就是 0，
-            // 没有 jumpTo 的中间动效（旧列表先闪回顶再换内容，看着像里面滚了一段）。
+            // 路径 key：换路径时列表 element 销毁重建，用 PageStorageKey 让 Flutter
+            // 按路径记住滚动位置——进文件夹再返回时回到原来的位置。
+            // key 里带上 mode，避免收藏/下载/历史三个页面的同名路径互相串位置。
             // 同路径刷新（如下拉）key 不变，offset 保留。
+            final listStorageKey = PageStorageKey<String>(
+              'shelf-${state.mode.name}-${state.currentPath}',
+            );
             final shelfList = detailed
                 ? CustomScrollView(
-                    key: ValueKey('shelf-${state.currentPath}'),
+                    key: listStorageKey,
                     // 内容不足一屏时也要能下拉，否则 RefreshIndicator 收不到手势。
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
@@ -622,7 +626,7 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                     ],
                   )
                 : GridView.builder(
-                    key: ValueKey('shelf-${state.currentPath}'),
+                    key: listStorageKey,
                     // 内容不足一屏时也要能下拉，否则 RefreshIndicator 收不到手势。
                     physics: const AlwaysScrollableScrollPhysics(),
                     // 悬浮物盖在列表上层：子文件夹有面包屑浮栏，留 64px 顶部滚动边距；
