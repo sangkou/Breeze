@@ -72,6 +72,13 @@ jobs:
       - name: 设置 Dart SDK
         uses: dart-lang/setup-dart@v1
 
+      # Flutter 3.50 的 SDK 约 1GB，缓存下来省掉每次重新下载（约 1.5 分钟）。
+      - name: 缓存 Flutter SDK
+        uses: actions/cache@v5
+        with:
+          path: ~/fvm
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
       - name: 设置 Flutter (FVM)
         run: |
           dart pub global activate fvm
@@ -85,17 +92,19 @@ jobs:
         with:
           targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
 
-      - name: 缓存 Rust 构建产物
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            rust
-
       - name: 拉取 Flutter 依赖
         run: fvm flutter pub get
 
       - name: 重新生成 i18n 代码
         run: fvm flutter pub run slang
+
+      # 关键：Flutter 的 native assets 把 Rust 编到 .dart_tool/hooks_runner，
+      # 不是 rust/target。缓存这个目录才能真正跳过重复编译（约 6–8 分钟）。
+      - name: 缓存 Rust 编译产物（native assets）
+        uses: actions/cache@v5
+        with:
+          path: .dart_tool/hooks_runner
+          key: native-assets-${{ runner.os }}-${{ hashFiles('rust/**', 'pubspec.lock', '.fvmrc') }}
 
       # 超分依赖会编译 OpenCV + ncnn 静态库，非常耗时；不开也能正常出包，
       # 只是 App 内「超分」功能在运行时会因缺少 libwaifu2x_cli.so 而失败。
