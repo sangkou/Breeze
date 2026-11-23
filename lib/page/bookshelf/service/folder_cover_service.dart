@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/widgets/comic_entry/models/models.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry_info.dart';
 

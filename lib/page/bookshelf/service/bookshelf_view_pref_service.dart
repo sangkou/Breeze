@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:zephyr/main.dart';
 import 'package:zephyr/page/bookshelf/models/shelf_page_mode.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 
 /// 书架显示偏好，目前只有「不显示文件夹」。
 ///
