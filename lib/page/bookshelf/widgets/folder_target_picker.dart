@@ -556,11 +556,6 @@ List<FolderNode> buildFolderForest(
   return roots;
 }
 
-Map<String, ComicFolder> buildFolderSyncIdMap(ComicFolderType type) {
-  final allFolders = ComicFolderService.listAllFolders(type);
-  return {for (final folder in allFolders) folder.syncId: folder};
-}
-
 void collectForbiddenSyncIds(
   String syncId,
   List<ComicFolder> allFolders,
