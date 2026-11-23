@@ -17,7 +17,10 @@ class UnifiedPluginDetailResponse {
   final Map<String, dynamic> normal;
   final Map<String, dynamic> raw;
 
-  factory UnifiedPluginDetailResponse.fromMap(Map<String, dynamic> map) {
+  factory UnifiedPluginDetailResponse.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = asJsonMap(map['data']);
     final normal = data.isNotEmpty
         ? asJsonMap(data['normal'])
@@ -27,7 +30,7 @@ class UnifiedPluginDetailResponse {
         : asJsonMap(map['raw']);
 
     return UnifiedPluginDetailResponse(
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       comicId: map['comicId']?.toString() ?? '',
       extern: asJsonMap(map['extern']),
       scheme: asJsonMap(map['scheme']),

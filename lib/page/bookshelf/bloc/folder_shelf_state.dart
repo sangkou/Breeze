@@ -20,6 +20,13 @@ abstract class FolderShelfState with _$FolderShelfState {
     @Default(<String, String>{}) Map<String, String> comicSearchTexts,
     SearchStatusState? search,
     @Default(false) bool isLoading,
+    @Default(false) bool isLoadingMore,
+
+    /// 下一页的原始行偏移（链接/历史）。
+    @Default(0) int nextOffset,
+
+    /// 是否还有更多页。
+    @Default(false) bool hasMore,
     String? error,
     @Default(false) bool sortAscending,
     @Default(false) bool selectionMode,

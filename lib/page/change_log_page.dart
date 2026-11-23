@@ -4,13 +4,13 @@ import 'package:intl/intl.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/utils/github_proxy.dart';
 import 'package:zephyr/service/update/check_update.dart';
 import 'package:zephyr/service/update/json/github_release_json.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/system/external_link.dart';
 
 const _proxyReleasesApiUrl =
     '$breezeGithubApi/repos/breeze-project-org/Breeze/releases';
@@ -160,7 +160,7 @@ class _ChangelogPageState extends State<ChangelogPage> {
 
   Future<void> _launchUrl(String urlString) async {
     final Uri url = Uri.parse(urlString);
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+    if (!await openExternalUrl(url)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(t.changelog.cannotOpenLink(url: urlString))),

@@ -18,8 +18,40 @@ class _ReaderSettingsGestureTab extends StatelessWidget {
           const _DoubleTapSection(),
           if (isAndroidPhone) const SizedBox(height: 18),
           if (isAndroidPhone) const _VolumeKeyPageTurnSection(),
+          const SizedBox(height: 18),
+          const _ZoomedScrollSection(),
         ],
       ),
+    );
+  }
+}
+
+/// 条漫放大后把单指纵向拖动交给列表继续滚动。
+///
+/// 只影响条漫模式；列表锁定滚动时仍保留父级物理，
+/// 由 ReaderInputController 内的转交逻辑手动驱动。
+class _ZoomedScrollSection extends StatelessWidget {
+  const _ZoomedScrollSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final effective = context.watchTargetReadSetting();
+
+    return _SettingsSection(
+      title: t.reader.experimentalFeatures,
+      children: [
+        _SettingsSwitchTile(
+          title: t.reader.zoomedContinuousScroll,
+          subtitle: t.reader.zoomedContinuousScrollSubtitle,
+          value: effective.zoomedContinuousScroll,
+          onChanged: (value) {
+            context.updateEffectiveReadSetting(
+              effective,
+              (current) => current.copyWith(zoomedContinuousScroll: value),
+            );
+          },
+        ),
+      ],
     );
   }
 }

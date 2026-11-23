@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:auto_route/auto_route.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/page/setting/common/setting_ui.dart';
@@ -12,7 +11,8 @@ import 'package:zephyr/page/setting/real_sr/service/desktop_ncnn_model_config.da
 import 'package:zephyr/page/setting/real_sr/service/real_sr_settings.dart';
 import 'package:zephyr/page/setting/real_sr/service/real_sr_super_resolution.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/coreml_model_config.dart';
+import 'package:zephyr/util/coreml/coreml_model_config.dart';
+import 'package:zephyr/util/system/external_link.dart';
 import 'package:zephyr/widgets/fluent_dropdown.dart';
 import 'package:zephyr/widgets/toast.dart';
 
@@ -229,10 +229,7 @@ class _RealSrSettingPageState extends State<RealSrSettingPage> {
       showErrorToast(t.realSr.manualDownloadUnsupported);
       return;
     }
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
+    final opened = await openExternalUrl(Uri.parse(url));
     if (!opened && mounted) {
       showErrorToast(t.realSr.openDownloadUrlFailed);
     }

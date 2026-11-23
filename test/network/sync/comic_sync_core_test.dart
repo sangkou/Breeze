@@ -1,38 +1,40 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zephyr/network/sync/comic_sync_core.dart';
 import 'package:zephyr/network/sync/sync_device_id.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
+import 'package:path/path.dart' as p;
+import 'package:zephyr/database/database.dart';
 
 void main() {
   late Directory tempDir;
-  late Store store;
+  late Database database;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('breeze_sync_test_');
-    store = await openStore(directory: tempDir.path);
+    database = await Database.open(
+      path: p.join(tempDir.path, 'breeze.sqlite3'),
+      legacyObjectBoxDir: p.join(tempDir.path, 'missing_objectbox'),
+    );
     syncDeviceId = 'device_local';
   });
 
   tearDown(() async {
-    store.close();
+    await database.close();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
   });
+
   Future<void> runMerge(
-    Store store,
+    Database database,
     Map<String, dynamic> data, {
     String deviceId = 'device_local',
   }) async {
     syncDeviceId = deviceId;
-    await store.runInTransactionAsync<int, Map<String, dynamic>>(
-      TxMode.write,
-      ComicSyncCore.mergeUnifiedDataInIsolate,
-      {'_data': data, '_deviceId': deviceId},
-    );
+    await ComicSyncCore.mergeUnifiedData(database, data);
   }
 
   group('ComicSyncCore.mergeUnifiedData', () {
@@ -52,12 +54,11 @@ void main() {
       );
 
       final data = buildPayload(favorites: [cloud.toJson()]);
-      putAll(store, favorites: [local]);
+      await putAll(database, favorites: [local]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final box = store.box<UnifiedComicFavorite>();
-      final merged = box.getAll().single;
+      final merged = (await database.favorites.getAll()).single;
       expect(merged.title, 'Cloud Title');
     });
 
@@ -70,11 +71,11 @@ void main() {
       );
 
       final data = buildPayload(histories: [cloud.toJson()]);
-      putAll(store, histories: [local]);
+      await putAll(database, histories: [local]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final merged = store.box<UnifiedComicHistory>().getAll().single;
+      final merged = (await database.histories.getAll()).single;
       expect(merged.pageIndex, 20);
     });
 
@@ -83,11 +84,11 @@ void main() {
       final cloud = createFolder('folderA', versionVector: {'device_cloud': 2});
 
       final data = buildPayload(folders: [cloud.toJson()]);
-      putAll(store, folders: [local]);
+      await putAll(database, folders: [local]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final merged = store.box<ComicFolder>().getAll().single;
+      final merged = (await database.folders.getAll()).single;
       expect(merged.syncId, cloud.syncId);
     });
 
@@ -96,13 +97,41 @@ void main() {
       final cloud = createFolder('folderA', versionVector: {'device_cloud': 1});
 
       final data = buildPayload(folders: [cloud.toJson()]);
-      putAll(store, folders: [local]);
+      await putAll(database, folders: [local]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final merged = store.box<ComicFolder>().getAll().single;
+      final merged = (await database.folders.getAll()).single;
       expect(merged.syncId, local.syncId);
     });
+
+    test(
+      'bumps version vector with the local device id in merge isolate',
+      () async {
+        final local = createFolder(
+          'folderA',
+          versionVector: {'device_local': 1},
+          updatedAt: 1000,
+        );
+        final cloud = createFolder(
+          'folderA',
+          versionVector: {'device_cloud': 1},
+          updatedAt: 2000,
+        );
+
+        final data = buildPayload(folders: [cloud.toJson()]);
+        await putAll(database, folders: [local]);
+
+        await runMerge(database, data);
+
+        final merged = (await database.folders.getAll()).single;
+        final vector =
+            jsonDecode(merged.versionVectorJson) as Map<String, dynamic>;
+        // 冲突合并后按本机 ID 提升；占位值 device_default 只应在未初始化时出现。
+        expect(vector, {'device_local': 2, 'device_cloud': 1});
+        expect(vector.containsKey('device_default'), isFalse);
+      },
+    );
 
     test('resolves folder uniqueKey conflict with active winner', () async {
       // Two devices created a folder with same parent/name/type but different syncIds.
@@ -134,12 +163,12 @@ void main() {
         folders: [cloudFolder.toJson(), child.toJson()],
         links: [link.toJson()],
       );
-      putAll(store, folders: [localFolder]);
+      await putAll(database, folders: [localFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
-      final links = store.box<ComicLink>().getAll();
+      final folders = (await database.folders.getAll());
+      final links = (await database.links.getAll());
 
       // Only one active folder remains for the uniqueKey.
       final activeFolders = folders.where((f) => f.deletedAt == null).toList();
@@ -161,11 +190,13 @@ void main() {
         syncId: 'sync_local',
         versionVector: {'device_local': 2},
         deletedAt: DateTime.now().toUtc().millisecondsSinceEpoch,
+        updatedAt: 2000,
       );
       final cloudFolder = createFolder(
         'conflict',
         syncId: 'sync_cloud',
         versionVector: {'device_cloud': 1},
+        updatedAt: 1000,
       );
       final cloudChild = createFolder(
         'child',
@@ -183,69 +214,63 @@ void main() {
         folders: [cloudFolder.toJson(), cloudChild.toJson()],
         links: [link.toJson()],
       );
-      putAll(store, folders: [localFolder]);
+      await putAll(database, folders: [localFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
-      final links = store.box<ComicLink>().getAll();
+      final folders = (await database.folders.getAll());
+      final links = (await database.links.getAll());
 
       expect(folders.every((f) => f.deletedAt != null), isTrue);
       expect(links.single.deletedAt, isNotNull);
     });
 
-    test(
-      'repairs orphan links by moving to root when folder syncId is missing',
-      () async {
-        // Cloud has a link pointing to a non-existent folder syncId.
-        final link = createLink(
-          'test:comic1',
-          folderSyncId: 'missing_sync',
-          versionVector: {'device_cloud': 1},
-        );
+    test('repairs orphan links by moving to root when folder syncId is missing', () async {
+      // Cloud has a link pointing to a non-existent folder syncId.
+      final link = createLink(
+        'test:comic1',
+        folderSyncId: 'missing_sync',
+        versionVector: {'device_cloud': 1},
+      );
 
-        final data = buildPayload(links: [link.toJson()]);
-        await runMerge(store, data);
+      final data = buildPayload(links: [link.toJson()]);
+      await runMerge(database, data);
 
-        final folders = store.box<ComicFolder>().getAll();
-        final links = store.box<ComicLink>().getAll();
+      final folders = (await database.folders.getAll());
+      final links = (await database.links.getAll());
 
-        // No folders are created because the syncId cannot be resolved to a path.
-        expect(folders, isEmpty);
-        // The orphan link is repaired to point to the root folder.
-        expect(links.single.deletedAt, isNull);
-        expect(links.single.folderSyncId, isNull);
-        expect(links.single.uniqueKey, 'test:comic1||favorite');
-      },
-    );
+      // No folders are created because the syncId cannot be resolved to a path.
+      expect(folders, isEmpty);
+      // The orphan link is repaired to point to the root folder.
+      expect(links.single.deletedAt, isNull);
+      expect(links.single.folderSyncId, isNull);
+      expect(links.single.uniqueKey, 'test:comic1||favorite');
+    });
 
-    test(
-      'repairs orphan links by resurrecting tombstone folder when link dominates',
-      () async {
-        final folder = createFolder(
-          'folderA',
-          syncId: 'folder_sync',
-          versionVector: {'device_local': 1},
-          deletedAt: DateTime.now().toUtc().millisecondsSinceEpoch,
-        );
-        final link = createLink(
-          'test:comic1',
-          folderSyncId: 'folder_sync',
-          versionVector: {'device_cloud': 2},
-        );
+    test('repairs orphan links by resurrecting tombstone folder when link dominates', () async {
+      final folder = createFolder(
+        'folderA',
+        syncId: 'folder_sync',
+        versionVector: {'device_local': 1},
+        deletedAt: DateTime.now().toUtc().millisecondsSinceEpoch,
+      );
+      final link = createLink(
+        'test:comic1',
+        folderSyncId: 'folder_sync',
+        versionVector: {'device_cloud': 2},
+      );
 
-        final data = buildPayload(links: [link.toJson()]);
-        putAll(store, folders: [folder]);
+      final data = buildPayload(links: [link.toJson()]);
+      await putAll(database, folders: [folder]);
 
-        await runMerge(store, data);
+      await runMerge(database, data);
 
-        final storedFolder = store.box<ComicFolder>().getAll().single;
-        final storedLink = store.box<ComicLink>().getAll().single;
-        expect(storedFolder.deletedAt, isNull);
-        expect(storedLink.deletedAt, isNull);
-        expect(storedLink.folderSyncId, storedFolder.syncId);
-      },
-    );
+      final storedFolder = (await database.folders.getAll()).single;
+      final storedLink = (await database.links.getAll()).single;
+      expect(storedFolder.deletedAt, isNull);
+      expect(storedLink.deletedAt, isNull);
+      expect(storedLink.folderSyncId, storedFolder.syncId);
+    });
 
     test('handles old path-based folder uniqueKey migration', () async {
       // Simulate old data: uniqueKey is "/parent/child|favorite" and no parentSyncId.
@@ -273,9 +298,9 @@ void main() {
       final data = buildPayload(
         folders: [oldParent.toJson(), oldChild.toJson()],
       );
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
+      final folders = (await database.folders.getAll());
       final parent = folders.firstWhere((f) => f.name == 'parent');
       final child = folders.firstWhere((f) => f.name == 'child');
 
@@ -298,11 +323,11 @@ void main() {
       );
 
       final data = buildPayload(folders: [cloudFolder.toJson()]);
-      putAll(store, folders: [localFolder]);
+      await putAll(database, folders: [localFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final merged = store.box<ComicFolder>().getAll().single;
+      final merged = (await database.folders.getAll()).single;
       // Local dominates by version vector.
       expect(merged.name, 'renamed_local');
       expect(merged.uniqueKey, '|renamed_local|favorite');
@@ -331,11 +356,11 @@ void main() {
       final data = buildPayload(
         folders: [cloudFolder.toJson(), cloudChild.toJson()],
       );
-      putAll(store, folders: [deletedFolder]);
+      await putAll(database, folders: [deletedFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
+      final folders = (await database.folders.getAll());
       expect(folders.every((f) => f.deletedAt != null), isTrue);
     });
 
@@ -354,12 +379,12 @@ void main() {
       cloudFolder.updatedAt = 2000;
 
       final data = buildPayload(folders: [cloudFolder.toJson()]);
-      putAll(store, folders: [localFolder]);
+      await putAll(database, folders: [localFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
       // 向量相等时按 updatedAt 更大的选，确保多端 converge。
-      final merged = store.box<ComicFolder>().getAll().single;
+      final merged = (await database.folders.getAll()).single;
       expect(merged.syncId, cloudFolder.syncId);
     });
 
@@ -380,12 +405,12 @@ void main() {
         cloudFolder.updatedAt = 1000;
 
         final data = buildPayload(folders: [cloudFolder.toJson()]);
-        putAll(store, folders: [localFolder]);
+        await putAll(database, folders: [localFolder]);
 
-        await runMerge(store, data);
+        await runMerge(database, data);
 
         // updatedAt 也相同时按 syncId 字典序更大者胜出。
-        final merged = store.box<ComicFolder>().getAll().single;
+        final merged = (await database.folders.getAll()).single;
         expect(merged.syncId, localFolder.syncId);
       },
     );
@@ -407,11 +432,11 @@ void main() {
         folders: [folder.toJson()],
         links: [cloudLink.toJson()],
       );
-      putAll(store, folders: [folder], links: [localLink]);
+      await putAll(database, folders: [folder], links: [localLink]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final links = store.box<ComicLink>().getAll();
+      final links = (await database.links.getAll());
       expect(links.length, 1);
       expect(links.single.deletedAt, isNull);
     });
@@ -432,11 +457,11 @@ void main() {
       );
 
       final data = buildPayload(folders: [newFolder.toJson()]);
-      putAll(store, folders: [oldFolder]);
+      await putAll(database, folders: [oldFolder]);
 
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
+      final folders = (await database.folders.getAll());
       expect(folders.length, 1);
       expect(folders.single.deletedAt, isNull);
       expect(folders.single.syncId, newFolder.syncId);
@@ -478,11 +503,11 @@ void main() {
         folders: [oldParent.toJson(), oldChild.toJson()],
         links: [oldLink.toJson()],
       );
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final folders = store.box<ComicFolder>().getAll();
+      final folders = (await database.folders.getAll());
       final child = folders.firstWhere((f) => f.name == 'child');
-      final link = store.box<ComicLink>().getAll().single;
+      final link = (await database.links.getAll()).single;
       expect(link.folderSyncId, child.syncId);
       expect(link.uniqueKey, 'test:comic1|${child.syncId}|favorite');
     });
@@ -504,21 +529,25 @@ void main() {
         folders: [newFolder.toJson()],
         links: [oldLink.toJson()],
       );
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      final link = store.box<ComicLink>().getAll().single;
+      final link = (await database.links.getAll()).single;
       expect(link.folderSyncId, newFolder.syncId);
     });
 
     test('preserves local data when cloud is empty', () async {
       final localFolder = createFolder('folderA');
       final localFavorite = createFavorite('test:comic1');
-      putAll(store, folders: [localFolder], favorites: [localFavorite]);
+      await putAll(
+        database,
+        folders: [localFolder],
+        favorites: [localFavorite],
+      );
 
-      await runMerge(store, buildPayload());
+      await runMerge(database, buildPayload());
 
-      expect(store.box<ComicFolder>().getAll().length, 1);
-      expect(store.box<UnifiedComicFavorite>().getAll().length, 1);
+      expect((await database.folders.getAll()).length, 1);
+      expect((await database.favorites.getAll()).length, 1);
     });
 
     test('applies cloud data when local is empty', () async {
@@ -529,10 +558,10 @@ void main() {
         folders: [cloudFolder.toJson()],
         favorites: [cloudFavorite.toJson()],
       );
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      expect(store.box<ComicFolder>().getAll().length, 1);
-      expect(store.box<UnifiedComicFavorite>().getAll().length, 1);
+      expect((await database.folders.getAll()).length, 1);
+      expect((await database.favorites.getAll()).length, 1);
     });
 
     test('handles large number of folders and links', () async {
@@ -549,10 +578,10 @@ void main() {
         folders: folders.map((f) => f.toJson()).toList(),
         links: links.map((l) => l.toJson()).toList(),
       );
-      await runMerge(store, data);
+      await runMerge(database, data);
 
-      expect(store.box<ComicFolder>().getAll().length, count);
-      expect(store.box<ComicLink>().getAll().length, count);
+      expect((await database.folders.getAll()).length, count);
+      expect((await database.links.getAll()).length, count);
     });
   });
 }
@@ -574,17 +603,17 @@ Map<String, dynamic> buildPayload({
   };
 }
 
-void putAll(
-  Store store, {
+Future<void> putAll(
+  Database database, {
   List<UnifiedComicFavorite> favorites = const [],
   List<UnifiedComicHistory> histories = const [],
   List<ComicFolder> folders = const [],
   List<ComicLink> links = const [],
-}) {
-  store.box<UnifiedComicFavorite>().putMany(favorites);
-  store.box<UnifiedComicHistory>().putMany(histories);
-  store.box<ComicFolder>().putMany(folders);
-  store.box<ComicLink>().putMany(links);
+}) async {
+  await database.favorites.putMany(favorites);
+  await database.histories.putMany(histories);
+  await database.folders.putMany(folders);
+  await database.links.putMany(links);
 }
 
 UnifiedComicFavorite createFavorite(
@@ -645,6 +674,7 @@ ComicFolder createFolder(
   String? parentSyncId,
   Map<String, int>? versionVector,
   int? deletedAt,
+  int? updatedAt,
 }) {
   final now = DateTime.now().toUtc().millisecondsSinceEpoch;
   return ComicFolder(
@@ -658,7 +688,7 @@ ComicFolder createFolder(
         : '{"device_local": 1}',
     deletedAt: deletedAt,
     createdAt: now,
-    updatedAt: now,
+    updatedAt: updatedAt ?? now,
   );
 }
 

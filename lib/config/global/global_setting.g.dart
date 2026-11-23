@@ -26,6 +26,8 @@ _GlobalSettingState _$GlobalSettingStateFromJson(
   showPluginHome: json['showPluginHome'] as bool? ?? true,
   showPluginCloudFavorite: json['showPluginCloudFavorite'] as bool? ?? true,
   showSearchBookmark: json['showSearchBookmark'] as bool? ?? true,
+  showScrollbar: json['showScrollbar'] as bool?,
+  alwaysShowScrollbar: json['alwaysShowScrollbar'] as bool? ?? false,
   syncSetting: json['syncSetting'] == null
       ? const SyncSettingState()
       : SyncSettingState.fromJson(json['syncSetting'] as Map<String, dynamic>),
@@ -101,6 +103,11 @@ _GlobalSettingState _$GlobalSettingStateFromJson(
   eInkSetting: json['eInkSetting'] == null
       ? const EInkSettingState()
       : EInkSettingState.fromJson(json['eInkSetting'] as Map<String, dynamic>),
+  comicDetailSetting: json['comicDetailSetting'] == null
+      ? const ComicDetailSettingState()
+      : ComicDetailSettingState.fromJson(
+          json['comicDetailSetting'] as Map<String, dynamic>,
+        ),
 );
 
 Map<String, dynamic> _$GlobalSettingStateToJson(
@@ -117,6 +124,8 @@ Map<String, dynamic> _$GlobalSettingStateToJson(
   'showPluginHome': instance.showPluginHome,
   'showPluginCloudFavorite': instance.showPluginCloudFavorite,
   'showSearchBookmark': instance.showSearchBookmark,
+  'showScrollbar': instance.showScrollbar,
+  'alwaysShowScrollbar': instance.alwaysShowScrollbar,
   'syncSetting': instance.syncSetting.toJson(),
   'maskedKeywords': instance.maskedKeywords,
   'socks5ProxyEnabled': instance.socks5ProxyEnabled,
@@ -154,6 +163,7 @@ Map<String, dynamic> _$GlobalSettingStateToJson(
       _$ChineseConvertModeEnumMap[instance.chineseConvertMode]!,
   'bookshelfSetting': instance.bookshelfSetting.toJson(),
   'eInkSetting': instance.eInkSetting.toJson(),
+  'comicDetailSetting': instance.comicDetailSetting.toJson(),
 };
 
 const _$ThemeModeEnumMap = {
@@ -285,6 +295,13 @@ _SyncSettingState _$SyncSettingStateFromJson(Map<String, dynamic> json) =>
       syncSettings: json['syncSettings'] as bool? ?? false,
       syncPlugins: json['syncPlugins'] as bool? ?? false,
       autoSync: json['autoSync'] as bool? ?? true,
+      syncInterval: (json['syncInterval'] as num?)?.toInt() ?? 5,
+      syncIntervalUnit:
+          $enumDecodeNullable(
+            _$SyncIntervalUnitEnumMap,
+            json['syncIntervalUnit'],
+          ) ??
+          SyncIntervalUnit.minute,
       syncNotify: json['syncNotify'] as bool? ?? true,
       settingsSyncTime: (json['settingsSyncTime'] as num?)?.toInt() ?? 0,
     );
@@ -297,6 +314,8 @@ Map<String, dynamic> _$SyncSettingStateToJson(_SyncSettingState instance) =>
       'syncSettings': instance.syncSettings,
       'syncPlugins': instance.syncPlugins,
       'autoSync': instance.autoSync,
+      'syncInterval': instance.syncInterval,
+      'syncIntervalUnit': _$SyncIntervalUnitEnumMap[instance.syncIntervalUnit]!,
       'syncNotify': instance.syncNotify,
       'settingsSyncTime': instance.settingsSyncTime,
     };
@@ -305,6 +324,12 @@ const _$SyncServiceTypeEnumMap = {
   SyncServiceType.none: 'none',
   SyncServiceType.webdav: 'webdav',
   SyncServiceType.s3: 's3',
+};
+
+const _$SyncIntervalUnitEnumMap = {
+  SyncIntervalUnit.second: 'second',
+  SyncIntervalUnit.minute: 'minute',
+  SyncIntervalUnit.hour: 'hour',
 };
 
 _ReadSettingState _$ReadSettingStateFromJson(Map<String, dynamic> json) =>
@@ -358,6 +383,7 @@ _ReadSettingState _$ReadSettingStateFromJson(Map<String, dynamic> json) =>
           (json['volumeKeyPageTurnDistancePercent'] as num?)?.toInt() ?? 72,
       doubleTapZoom: json['doubleTapZoom'] as bool? ?? false,
       doubleTapOpenMenu: json['doubleTapOpenMenu'] as bool? ?? false,
+      zoomedContinuousScroll: json['zoomedContinuousScroll'] as bool? ?? false,
       pageInfoShowPage: json['pageInfoShowPage'] as bool? ?? true,
       pageInfoShowNetwork: json['pageInfoShowNetwork'] as bool? ?? true,
       pageInfoShowBattery: json['pageInfoShowBattery'] as bool? ?? false,
@@ -416,6 +442,7 @@ Map<String, dynamic> _$ReadSettingStateToJson(
   'volumeKeyPageTurnDistancePercent': instance.volumeKeyPageTurnDistancePercent,
   'doubleTapZoom': instance.doubleTapZoom,
   'doubleTapOpenMenu': instance.doubleTapOpenMenu,
+  'zoomedContinuousScroll': instance.zoomedContinuousScroll,
   'pageInfoShowPage': instance.pageInfoShowPage,
   'pageInfoShowNetwork': instance.pageInfoShowNetwork,
   'pageInfoShowBattery': instance.pageInfoShowBattery,
@@ -514,4 +541,22 @@ Map<String, dynamic> _$BookshelfSettingStateToJson(
   'downloadSort': instance.downloadSort,
   'detailLayout': instance.detailLayout,
   'reverseChapters': instance.reverseChapters,
+};
+
+_ComicDetailSettingState _$ComicDetailSettingStateFromJson(
+  Map<String, dynamic> json,
+) => _ComicDetailSettingState(
+  showLikeAction: json['showLikeAction'] as bool? ?? true,
+  showCommentAction: json['showCommentAction'] as bool? ?? true,
+  showLocalCollectAction: json['showLocalCollectAction'] as bool? ?? true,
+  showCloudCollectAction: json['showCloudCollectAction'] as bool? ?? true,
+);
+
+Map<String, dynamic> _$ComicDetailSettingStateToJson(
+  _ComicDetailSettingState instance,
+) => <String, dynamic>{
+  'showLikeAction': instance.showLikeAction,
+  'showCommentAction': instance.showCommentAction,
+  'showLocalCollectAction': instance.showLocalCollectAction,
+  'showCloudCollectAction': instance.showCloudCollectAction,
 };

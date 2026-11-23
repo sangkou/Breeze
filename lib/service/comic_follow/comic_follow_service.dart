@@ -1,7 +1,8 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:zephyr/main.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/notification.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/comic_info/method/get_plugin_detail.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/widgets/toast.dart';
@@ -31,51 +32,31 @@ class ComicFollowService {
   }
 
   /// 保存或更新追更记录（直接写入数据库）
-  void putFollow(ComicFollow follow) {
+  Future<void> putFollow(ComicFollow follow) async {
     // uniqueKey 有唯一约束：新对象若与已有记录同 key，先复用已有 ID，
-    // 否则 put 会插入新行并触发 UniqueViolationException。
+    // 否则 put 会插入新行并触发唯一约束冲突。
     if (follow.id == 0) {
-      final existing = getFollowByUniqueKey(follow.uniqueKey);
+      final existing = await getFollowByUniqueKey(follow.uniqueKey);
       if (existing != null) {
         follow.id = existing.id;
       }
     }
-    objectbox.comicFollowBox.put(follow);
+    await database.follows.put(follow);
   }
 
   /// 查询全部未删除的追更记录
-  List<ComicFollow> listActiveFollows() {
-    final query = objectbox.comicFollowBox
-        .query(ComicFollow_.deleted.equals(false))
-        .order(ComicFollow_.hasUpdate, flags: Order.descending)
-        .order(ComicFollow_.updateTime, flags: Order.descending)
-        .build();
-    try {
-      return query.find();
-    } finally {
-      query.close();
-    }
-  }
+  Future<List<ComicFollow>> listActiveFollows() async =>
+      database.follows.listActive();
 
   /// 查询未删除的阅读历史，供追更页关联阅读进度和最后阅读时间。
-  Map<String, UnifiedComicHistory> listActiveHistories() {
-    return {
-      for (final history in objectbox.unifiedHistoryBox.getAll())
-        if (!history.deleted) history.uniqueKey: history,
-    };
+  Future<Map<String, UnifiedComicHistory>> listActiveHistories() async {
+    final histories = await database.histories.listActive();
+    return {for (final history in histories) history.uniqueKey: history};
   }
 
   /// 按 uniqueKey 查询追更记录（包含已删除的），用于更新或复活旧记录
-  ComicFollow? getFollowByUniqueKey(String uniqueKey) {
-    final query = objectbox.comicFollowBox
-        .query(ComicFollow_.uniqueKey.equals(uniqueKey))
-        .build();
-    try {
-      return query.findFirst();
-    } finally {
-      query.close();
-    }
-  }
+  Future<ComicFollow?> getFollowByUniqueKey(String uniqueKey) =>
+      database.follows.getByKey(uniqueKey);
 
   /// 检测单部漫画的当前章节，失败时返回 null，最多重试 3 次
   Future<ComicFollowDetection?> detectChapter(ComicFollow follow) async {
@@ -117,12 +98,17 @@ class ComicFollowService {
         : t.comicFollow.updatedComicsMultiple(count: updateCount);
 
     try {
-      await flutterLocalNotificationsPlugin.show(
-        id: DateTime.now().millisecondsSinceEpoch % 2147483647,
-        title: title,
-        body: body,
-        notificationDetails: _notificationDetails(),
-      );
+      final id = DateTime.now().millisecondsSinceEpoch % 2147483647;
+      if (isOhos) {
+        await publishOhosNotification(id: id, title: title, body: body);
+      } else {
+        await flutterLocalNotificationsPlugin.show(
+          id: id,
+          title: title,
+          body: body,
+          notificationDetails: _notificationDetails(),
+        );
+      }
     } catch (e, s) {
       logger.e('追更通知发送失败', error: e, stackTrace: s);
     }

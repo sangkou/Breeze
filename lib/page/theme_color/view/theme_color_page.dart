@@ -5,7 +5,6 @@ import 'package:zephyr/config/global/color_theme_types.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/page/theme_color/theme_color.dart';
-import 'package:zephyr/main.dart';
 
 @RoutePage()
 class ThemeColorPage extends StatefulWidget {
@@ -21,7 +20,7 @@ class _ThemeColorPageState extends State<ThemeColorPage> {
   @override
   void initState() {
     super.initState();
-    _currentColor = objectbox.userSettingBox.get(1)!.globalSetting.seedColor;
+    _currentColor = globalSetting.seedColor;
   }
 
   @override

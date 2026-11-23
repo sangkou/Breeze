@@ -2,14 +2,18 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zephyr/config/global/global_setting.dart';
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
 import 'package:zephyr/page/comic_follow/cubit/comic_follow_cubit.dart';
 import 'package:zephyr/plugin/plugin_registry_service.dart';
 
 import 'package:zephyr/network/sync/comic_sync_core.dart';
+import 'package:zephyr/network/sync/plugin_sync_merge.dart';
 import 'package:zephyr/network/sync/s3_sync_service.dart';
 import 'package:zephyr/network/sync/webdav_sync_service.dart';
+import 'package:zephyr/util/async/worker_pool.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 
 const String _settingsSyncSchemaVersion = 'v2';
 const String _settingsBlockMetaPrefsKey = 'sync.settings.block.meta.v3';
@@ -429,7 +433,7 @@ Future<_SettingsSnapshot> _buildLocalSettingsSnapshot(
   }
 
   if (globalSetting.syncSetting.syncPlugins) {
-    final pluginData = _buildPluginBlockData();
+    final pluginData = await _buildPluginBlockData();
     final hash = _calculateStructuredMd5(pluginData);
     final previous = existingMeta[_pluginsBlockName];
     final pluginBaseTimestamp = _derivePluginBlockTimestamp(
@@ -670,9 +674,20 @@ Map<String, Map<String, dynamic>> _extractSyncableSettingsBlocks(
   };
 }
 
-Map<String, dynamic> _buildPluginBlockData() {
-  final deletedUuids = objectbox.pluginInfoBox
-      .getAll()
+Future<Map<String, dynamic>> _buildPluginBlockData() {
+  final handle = database.db.handle;
+  return runInIsolate(buildPluginBlockDataInWorker, handle);
+}
+
+/// 后台 isolate 内组装插件同步块：`with-scripts` 查询与逐条 `toJson` 都不占 UI。
+Future<Map<String, dynamic>> buildPluginBlockDataInWorker(int handle) async {
+  await initRustLib();
+  final db = Database.fromHandle(handle);
+  // 同步负载必须带脚本，只有这条路径使用 with-scripts 查询。
+  final infos = await db.plugins.listInfosWithScripts();
+  final configs = await db.plugins.listConfigs();
+
+  final deletedUuids = infos
       .where((item) => item.isDeleted)
       .map((item) => item.uuid.trim())
       .where((uuid) => uuid.isNotEmpty)
@@ -682,8 +697,7 @@ Map<String, dynamic> _buildPluginBlockData() {
       ..._buildPluginConfigNameCandidatesForSync(uuid),
   };
 
-  final pluginConfigs = objectbox.pluginConfigBox
-      .getAll()
+  final pluginConfigs = configs
       .map((item) {
         final name = item.name.trim();
         if (name.isEmpty || blockedConfigNames.contains(name)) {
@@ -702,15 +716,11 @@ Map<String, dynamic> _buildPluginBlockData() {
     return aName.compareTo(bName);
   });
 
-  final pluginInfos = objectbox.pluginInfoBox
-      .getAll()
-      .where((item) => !item.isDeleted)
-      .map((item) {
-        final json = item.toJson();
-        json.remove('id');
-        return json;
-      })
-      .toList();
+  final pluginInfos = infos.where((item) => !item.isDeleted).map((item) {
+    final json = item.toJson();
+    json.remove('id');
+    return json;
+  }).toList();
   pluginInfos.sort((a, b) {
     final aKey = '${a['uuid'] ?? ''}:${a['version'] ?? ''}';
     final bKey = '${b['uuid'] ?? ''}:${b['version'] ?? ''}';
@@ -766,24 +776,94 @@ Future<void> _applyMergedGlobalState(
     return;
   }
 
-  final user = objectbox.userSettingBox.get(1);
-  if (user != null) {
-    user.globalSetting = value;
-    objectbox.userSettingBox.put(user);
-  }
+  final user = await database.userSettings.getOrCreate();
+  user.globalSetting = value;
+  await database.userSettings.put(user);
 }
 
+/// 应用云端插件块：冲突判定、脚本合并与写回都在 worker 池内完成。
+///
+/// 只有注册表快照与 reconcile 留在 UI isolate——[PluginRegistryService] 是
+/// 进程级单例，worker 里拿不到同一份状态。
 Future<void> _applyPluginBlockData(Map<String, dynamic> pluginBlockData) async {
   final previousSnapshot = PluginRegistryService.I.snapshot;
-  final pluginConfigJsonList = _toJsonMapList(pluginBlockData['pluginConfigs']);
-  final pluginInfoJsonList = _toJsonMapList(pluginBlockData['pluginInfos']);
+  final result = await runInWorker(
+    () => applyPluginBlockDataInWorker(
+      PluginBlockApplyTask(
+        handle: database.db.handle,
+        pluginBlockData: pluginBlockData,
+      ),
+    ),
+  );
+  for (final warning in result.warnings) {
+    logger.w('[sync][plugins] $warning');
+  }
   logger.d(
     '[sync][plugins] apply_remote '
-    'incomingInfos=${pluginInfoJsonList.length} incomingConfigs=${pluginConfigJsonList.length} '
+    'incomingInfos=${result.incomingInfos} incomingConfigs=${result.incomingConfigs} '
     'previousRegistry=${previousSnapshot.length}',
   );
+  logger.d(
+    '[sync][plugins] apply_remote_db '
+    'upsertInfos=${result.upsertedInfos} totalLocalInfos=${result.totalLocalInfos} '
+    'savedConfigs=${result.savedConfigs} '
+    'skippedDeletedLocal=${result.skippedDeletedLocal} '
+    'skippedBlockedConfig=${result.skippedBlockedConfig}',
+  );
 
-  final localPluginInfos = objectbox.pluginInfoBox.getAll();
+  await PluginRegistryService.I.reconcileAfterExternalSync(
+    previousSnapshot: previousSnapshot,
+    changedScriptUuids: result.changedScriptUuids.toSet(),
+  );
+}
+
+class PluginBlockApplyTask {
+  const PluginBlockApplyTask({
+    required this.handle,
+    required this.pluginBlockData,
+  });
+
+  final int handle;
+  final Map<String, dynamic> pluginBlockData;
+}
+
+/// worker 池内应用到数据库后的统计；UI 侧只负责日志与注册表 reconcile。
+class PluginBlockApplyResult {
+  const PluginBlockApplyResult({
+    required this.incomingInfos,
+    required this.incomingConfigs,
+    required this.upsertedInfos,
+    required this.totalLocalInfos,
+    required this.savedConfigs,
+    required this.skippedDeletedLocal,
+    required this.skippedBlockedConfig,
+    required this.changedScriptUuids,
+    required this.warnings,
+  });
+
+  final int incomingInfos;
+  final int incomingConfigs;
+  final int upsertedInfos;
+  final int totalLocalInfos;
+  final int savedConfigs;
+  final int skippedDeletedLocal;
+  final int skippedBlockedConfig;
+  final List<String> changedScriptUuids;
+  final List<String> warnings;
+}
+
+Future<PluginBlockApplyResult> applyPluginBlockDataInWorker(
+  PluginBlockApplyTask task,
+) async {
+  await initRustLib();
+  final db = Database.fromHandle(task.handle);
+  final pluginBlockData = task.pluginBlockData;
+  final pluginConfigJsonList = _toJsonMapList(pluginBlockData['pluginConfigs']);
+  final pluginInfoJsonList = _toJsonMapList(pluginBlockData['pluginInfos']);
+  final warnings = <String>[];
+
+  // 冲突判定与写回都需要脚本，sync apply 是少数确实需要脚本的路径。
+  final localPluginInfos = await db.plugins.listInfosWithScripts();
   final localPluginByUuid = <String, PluginInfo>{
     for (final item in localPluginInfos)
       if (item.uuid.trim().isNotEmpty) item.uuid.trim(): item,
@@ -794,7 +874,7 @@ Future<void> _applyPluginBlockData(Map<String, dynamic> pluginBlockData) async {
       .where((uuid) => uuid.isNotEmpty)
       .toSet();
 
-  final remotePluginInfos = <PluginInfo>[];
+  final remotePluginEntries = <({String uuid, Map<String, dynamic> json})>[];
   for (final json in pluginInfoJsonList) {
     try {
       final parsed = PluginInfo.fromJson(json);
@@ -802,75 +882,56 @@ Future<void> _applyPluginBlockData(Map<String, dynamic> pluginBlockData) async {
       if (uuid.isEmpty || parsed.isDeleted) {
         continue;
       }
-      remotePluginInfos.add(
-        PluginInfo(
-          uuid: uuid,
-          version: parsed.version,
-          originScript: parsed.originScript,
-          insertedAt: parsed.insertedAt.toUtc(),
-          updatedAt: parsed.updatedAt.toUtc(),
-          isEnabled: parsed.isEnabled,
-          isDeleted: false,
-          deletedAt: null,
-          lastLoadSuccess: parsed.lastLoadSuccess,
-          lastLoadError: parsed.lastLoadError,
-          sortOrder: parsed.sortOrder,
-          debug: parsed.debug,
-          debugUrl: parsed.debugUrl,
-          getInfoJson: parsed.getInfoJson,
-        ),
-      );
+      final normalized = parsed.toJson()
+        ..remove('id')
+        ..['uuid'] = uuid;
+      remotePluginEntries.add((uuid: uuid, json: normalized));
     } catch (e) {
-      logger.w('[sync][plugins] 忽略无效插件信息: $e');
+      warnings.add('忽略无效插件信息: $e');
     }
   }
 
   final infoUpserts = <PluginInfo>[];
+  final changedScriptUuids = <String>{};
   var skippedDeletedLocal = 0;
-  for (final incoming in remotePluginInfos) {
-    final uuid = incoming.uuid.trim();
+  for (final remote in remotePluginEntries) {
+    final uuid = remote.uuid;
     if (localDeletedUuids.contains(uuid)) {
       skippedDeletedLocal++;
       continue;
     }
     final existing = localPluginByUuid[uuid];
-    if (existing != null &&
-        !_shouldApplyIncomingPluginInfo(existing, incoming)) {
+    final existingJson = existing == null
+        ? null
+        : (existing.toJson()..remove('id'));
+    final resolvedJson = resolvePluginInfoForApply(existingJson, remote.json);
+    final resolved = PluginInfo.fromJson(<String, dynamic>{
+      ...resolvedJson,
+      'id': existing?.id ?? 0,
+    });
+    final resolvedNormalized = resolved.toJson()..remove('id');
+    if (existingJson != null &&
+        samePluginInfoJson(existingJson, resolvedNormalized)) {
       continue;
     }
-    final upsert = PluginInfo(
-      id: existing?.id ?? 0,
-      uuid: uuid,
-      version: incoming.version,
-      originScript: incoming.originScript,
-      insertedAt: existing?.insertedAt ?? incoming.insertedAt,
-      updatedAt: incoming.updatedAt,
-      isEnabled: incoming.isEnabled,
-      isDeleted: false,
-      deletedAt: null,
-      lastLoadSuccess: incoming.lastLoadSuccess,
-      lastLoadError: incoming.lastLoadError,
-      sortOrder: incoming.sortOrder ?? existing?.sortOrder,
-      debug: incoming.debug,
-      debugUrl: incoming.debugUrl,
-      getInfoJson: incoming.getInfoJson.isNotEmpty
-          ? incoming.getInfoJson
-          : (existing?.getInfoJson ?? ''),
-    );
-    infoUpserts.add(upsert);
-    localPluginByUuid[uuid] = upsert;
+    if (existing == null || existing.originScript != resolved.originScript) {
+      changedScriptUuids.add(uuid);
+    }
+    infoUpserts.add(resolved);
+    localPluginByUuid[uuid] = resolved;
   }
   if (infoUpserts.isNotEmpty) {
-    objectbox.pluginInfoBox.putMany(infoUpserts);
+    await db.plugins.putInfosWithScripts(infoUpserts);
   }
 
   final blockedConfigNames = <String>{
     for (final uuid in localDeletedUuids)
       ..._buildPluginConfigNameCandidatesForSync(uuid),
   };
+  final existingConfigs = await db.plugins.listConfigs();
   final blockedConfigIds = <int>[];
   final localConfigByName = <String, PluginConfig>{
-    for (final item in objectbox.pluginConfigBox.getAll())
+    for (final item in existingConfigs)
       if (item.name.trim().isNotEmpty &&
           !blockedConfigNames.contains(item.name.trim()))
         item.name.trim(): PluginConfig(
@@ -879,14 +940,14 @@ Future<void> _applyPluginBlockData(Map<String, dynamic> pluginBlockData) async {
           config: item.config,
         ),
   };
-  for (final item in objectbox.pluginConfigBox.getAll()) {
+  for (final item in existingConfigs) {
     final name = item.name.trim();
     if (name.isNotEmpty && blockedConfigNames.contains(name)) {
       blockedConfigIds.add(item.id);
     }
   }
   if (blockedConfigIds.isNotEmpty) {
-    objectbox.pluginConfigBox.removeMany(blockedConfigIds);
+    await db.plugins.removeConfigByIds(blockedConfigIds);
   }
   var skippedBlockedConfig = 0;
   for (final json in pluginConfigJsonList) {
@@ -907,21 +968,23 @@ Future<void> _applyPluginBlockData(Map<String, dynamic> pluginBlockData) async {
         config: parsed.config,
       );
     } catch (e) {
-      logger.w('[sync][plugins] 忽略无效插件配置: $e');
+      warnings.add('忽略无效插件配置: $e');
     }
   }
   if (localConfigByName.isNotEmpty) {
-    objectbox.pluginConfigBox.putMany(localConfigByName.values.toList());
+    await db.plugins.putConfigs(localConfigByName.values.toList());
   }
-  logger.d(
-    '[sync][plugins] apply_remote_db '
-    'upsertInfos=${infoUpserts.length} totalLocalInfos=${localPluginByUuid.length} '
-    'savedConfigs=${localConfigByName.length} '
-    'skippedDeletedLocal=$skippedDeletedLocal skippedBlockedConfig=$skippedBlockedConfig',
-  );
 
-  await PluginRegistryService.I.reconcileAfterExternalSync(
-    previousSnapshot: previousSnapshot,
+  return PluginBlockApplyResult(
+    incomingInfos: pluginInfoJsonList.length,
+    incomingConfigs: pluginConfigJsonList.length,
+    upsertedInfos: infoUpserts.length,
+    totalLocalInfos: localPluginByUuid.length,
+    savedConfigs: localConfigByName.length,
+    skippedDeletedLocal: skippedDeletedLocal,
+    skippedBlockedConfig: skippedBlockedConfig,
+    changedScriptUuids: changedScriptUuids.toList(),
+    warnings: warnings,
   );
 }
 
@@ -966,11 +1029,9 @@ Future<void> _updateLocalSettingsSyncTime(
   if (globalSettingCubit != null) {
     globalSettingCubit.applySyncedState(merged);
   } else {
-    final user = objectbox.userSettingBox.get(1);
-    if (user != null) {
-      user.globalSetting = merged;
-      objectbox.userSettingBox.put(user);
-    }
+    final user = await database.userSettings.getOrCreate();
+    user.globalSetting = merged;
+    await database.userSettings.put(user);
   }
 }
 
@@ -1186,7 +1247,7 @@ _SettingsBlockPayload? _mergePluginBlocks(
   }
 
   final preferRemoteOnConflict = remoteBlock.updatedAt > localBlock.updatedAt;
-  final mergedData = _mergePluginBlockData(
+  final mergedData = mergePluginBlockData(
     localBlock.data,
     remoteBlock.data,
     preferRemoteOnConflict: preferRemoteOnConflict,
@@ -1206,127 +1267,6 @@ _SettingsBlockPayload? _mergePluginBlocks(
         : remoteBlock.updatedAt,
     data: mergedData,
   );
-}
-
-Map<String, dynamic> _mergePluginBlockData(
-  Map<String, dynamic> localData,
-  Map<String, dynamic> remoteData, {
-  required bool preferRemoteOnConflict,
-}) {
-  final localInfos = _toJsonMapList(localData['pluginInfos'])
-      .where((item) {
-        final uuid = item['uuid']?.toString().trim() ?? '';
-        return uuid.isNotEmpty && item['isDeleted'] != true;
-      })
-      .map((item) {
-        final next = Map<String, dynamic>.from(item);
-        next['uuid'] = item['uuid']?.toString().trim() ?? '';
-        return next;
-      })
-      .toList();
-  final remoteInfos = _toJsonMapList(remoteData['pluginInfos'])
-      .where((item) {
-        final uuid = item['uuid']?.toString().trim() ?? '';
-        return uuid.isNotEmpty && item['isDeleted'] != true;
-      })
-      .map((item) {
-        final next = Map<String, dynamic>.from(item);
-        next['uuid'] = item['uuid']?.toString().trim() ?? '';
-        return next;
-      })
-      .toList();
-
-  final mergedInfoByUuid = <String, Map<String, dynamic>>{
-    for (final item in localInfos) item['uuid'] as String: item,
-  };
-  for (final remote in remoteInfos) {
-    final uuid = remote['uuid'] as String;
-    final local = mergedInfoByUuid[uuid];
-    if (local == null) {
-      mergedInfoByUuid[uuid] = remote;
-      continue;
-    }
-    final remoteUpdatedAt = _pluginInfoUpdatedAtMs(remote);
-    final localUpdatedAt = _pluginInfoUpdatedAtMs(local);
-    if (remoteUpdatedAt > localUpdatedAt ||
-        (preferRemoteOnConflict && remoteUpdatedAt == localUpdatedAt)) {
-      mergedInfoByUuid[uuid] = remote;
-    }
-  }
-
-  final localConfigs = _toJsonMapList(localData['pluginConfigs']);
-  final remoteConfigs = _toJsonMapList(remoteData['pluginConfigs']);
-  final mergedConfigByName = <String, Map<String, dynamic>>{};
-
-  for (final item in localConfigs) {
-    final name = item['name']?.toString().trim() ?? '';
-    if (name.isEmpty) {
-      continue;
-    }
-    final next = Map<String, dynamic>.from(item);
-    next['name'] = name;
-    mergedConfigByName[name] = next;
-  }
-  for (final item in remoteConfigs) {
-    final name = item['name']?.toString().trim() ?? '';
-    if (name.isEmpty) {
-      continue;
-    }
-    final next = Map<String, dynamic>.from(item);
-    next['name'] = name;
-    if (!mergedConfigByName.containsKey(name) || preferRemoteOnConflict) {
-      mergedConfigByName[name] = next;
-    }
-  }
-
-  final mergedInfos = mergedInfoByUuid.values.toList()
-    ..sort((a, b) {
-      final aKey = '${a['uuid'] ?? ''}:${a['version'] ?? ''}';
-      final bKey = '${b['uuid'] ?? ''}:${b['version'] ?? ''}';
-      return aKey.compareTo(bKey);
-    });
-  final mergedConfigs = mergedConfigByName.values.toList()
-    ..sort((a, b) {
-      final aName = a['name']?.toString() ?? '';
-      final bName = b['name']?.toString() ?? '';
-      return aName.compareTo(bName);
-    });
-
-  return <String, dynamic>{
-    'pluginConfigs': mergedConfigs,
-    'pluginInfos': mergedInfos,
-  };
-}
-
-int _pluginInfoUpdatedAtMs(Map<String, dynamic> item) {
-  final updatedAt = DateTime.tryParse(item['updatedAt']?.toString() ?? '');
-  final insertedAt = DateTime.tryParse(item['insertedAt']?.toString() ?? '');
-  final updatedAtMs = updatedAt?.toUtc().millisecondsSinceEpoch ?? 0;
-  final insertedAtMs = insertedAt?.toUtc().millisecondsSinceEpoch ?? 0;
-  return updatedAtMs > insertedAtMs ? updatedAtMs : insertedAtMs;
-}
-
-bool _shouldApplyIncomingPluginInfo(PluginInfo existing, PluginInfo incoming) {
-  if (existing.isDeleted) {
-    return false;
-  }
-
-  final remoteUpdatedAt = incoming.updatedAt.toUtc().millisecondsSinceEpoch;
-  final localUpdatedAt = existing.updatedAt.toUtc().millisecondsSinceEpoch;
-  if (remoteUpdatedAt > localUpdatedAt) {
-    return true;
-  }
-  if (remoteUpdatedAt < localUpdatedAt) {
-    return false;
-  }
-  return existing.version != incoming.version ||
-      existing.originScript != incoming.originScript ||
-      existing.isEnabled != incoming.isEnabled ||
-      existing.debug != incoming.debug ||
-      (existing.debugUrl ?? '') != (incoming.debugUrl ?? '') ||
-      existing.lastLoadSuccess != incoming.lastLoadSuccess ||
-      (existing.lastLoadError ?? '') != (incoming.lastLoadError ?? '') ||
-      existing.sortOrder != incoming.sortOrder;
 }
 
 Set<String> _buildPluginConfigNameCandidatesForSync(String uuid) {

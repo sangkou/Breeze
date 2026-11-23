@@ -40,7 +40,7 @@ class _WebDavSyncPageState extends State<WebDavSyncPage> {
   @override
   void initState() {
     super.initState();
-    final settings = objectbox.userSettingBox.get(1)!.globalSetting;
+    final settings = globalSetting;
     _webdavHost.text = settings.syncSetting.webdavSetting.host;
     _webdavUsername.text = settings.syncSetting.webdavSetting.username;
     _webdavPassword.text = settings.syncSetting.webdavSetting.password;

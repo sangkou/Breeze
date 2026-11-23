@@ -3,7 +3,9 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/comic_archive.dart';
 import 'api/data_backup.dart';
+import 'api/database.dart';
 import 'api/http.dart';
 import 'api/image.dart';
 import 'api/localization.dart';
@@ -11,6 +13,7 @@ import 'api/logger.dart';
 import 'api/memory.dart';
 import 'api/qjs.dart';
 import 'api/simple.dart';
+import 'api/sync_device.dart';
 import 'api/system.dart';
 import 'api/user_utils.dart';
 import 'api/webdav.dart';
@@ -98,6 +101,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RustStreamSink<List<String>> dco_decode_StreamSink_list_String_Sse(
+    dynamic raw,
+  );
+
+  @protected
   String dco_decode_String(dynamic raw);
 
   @protected
@@ -145,6 +153,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_i_32(dynamic raw);
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
   @protected
   ImageInfo dco_decode_image_info(dynamic raw);
@@ -204,6 +215,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PackInfo dco_decode_pack_info(dynamic raw);
 
   @protected
+  QjsBundleInstallResult dco_decode_qjs_bundle_install_result(dynamic raw);
+
+  @protected
+  QjsCallFailure dco_decode_qjs_call_failure(dynamic raw);
+
+  @protected
+  QjsCallResult dco_decode_qjs_call_result(dynamic raw);
+
+  @protected
   QjsCancelTasksByGroupResult dco_decode_qjs_cancel_tasks_by_group_result(
     dynamic raw,
   );
@@ -225,6 +245,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_u_16(dynamic raw);
+
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
   @protected
   BigInt dco_decode_u_64(dynamic raw);
@@ -295,6 +318,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  RustStreamSink<List<String>> sse_decode_StreamSink_list_String_Sse(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
@@ -346,6 +374,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
   ImageInfo sse_decode_image_info(SseDeserializer deserializer);
@@ -413,6 +444,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PackInfo sse_decode_pack_info(SseDeserializer deserializer);
 
   @protected
+  QjsBundleInstallResult sse_decode_qjs_bundle_install_result(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  QjsCallFailure sse_decode_qjs_call_failure(SseDeserializer deserializer);
+
+  @protected
+  QjsCallResult sse_decode_qjs_call_result(SseDeserializer deserializer);
+
+  @protected
   QjsCancelTasksByGroupResult sse_decode_qjs_cancel_tasks_by_group_result(
     SseDeserializer deserializer,
   );
@@ -440,6 +482,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_u_64(SseDeserializer deserializer);
@@ -528,6 +573,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_StreamSink_list_String_Sse(
+    RustStreamSink<List<String>> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
@@ -592,6 +643,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
   @protected
   void sse_encode_image_info(ImageInfo self, SseSerializer serializer);
@@ -672,6 +726,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_pack_info(PackInfo self, SseSerializer serializer);
 
   @protected
+  void sse_encode_qjs_bundle_install_result(
+    QjsBundleInstallResult self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_qjs_call_failure(
+    QjsCallFailure self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_qjs_call_result(QjsCallResult self, SseSerializer serializer);
+
+  @protected
   void sse_encode_qjs_cancel_tasks_by_group_result(
     QjsCancelTasksByGroupResult self,
     SseSerializer serializer,
@@ -709,6 +778,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_64(BigInt self, SseSerializer serializer);

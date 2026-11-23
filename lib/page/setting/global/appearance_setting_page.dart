@@ -2,12 +2,14 @@ import 'package:auto_route/auto_route.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/config/global/global_setting.dart';
+import 'package:zephyr/config/router/router.gr.dart';
 import 'package:zephyr/i18n/i18n_helper.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/i18n/system_locale_service.dart';
 import 'package:zephyr/page/font_setting/view/font_setting_page.dart';
 import 'package:zephyr/page/setting/common/setting_ui.dart';
 import 'package:zephyr/page/setting/global/widgets.dart';
+import 'package:zephyr/util/ohos/platform.dart';
 import 'package:zephyr/widgets/fluent_dropdown.dart';
 import 'package:zephyr/widgets/toast.dart';
 
@@ -31,14 +33,17 @@ class AppearanceSettingPage extends StatelessWidget {
           ),
           _languageTile(context, state, cubit),
           _systemTheme(state, cubit),
-          _dynamicColor(state, cubit),
-          if (!state.dynamicColor) changeThemeColor(context),
+          if (!isOhos) _dynamicColor(state, cubit),
+          if (isOhos || !state.dynamicColor) changeThemeColor(context),
           _comicReadTopContainer(state, cubit),
           _isAMOLED(state, cubit),
           _detailLayout(state, cubit),
+          _comicDetail(context),
           _showPluginHome(state, cubit),
           _showPluginCloudFavorite(state, cubit),
           _showSearchBookmark(state, cubit),
+          _showScrollbar(state, cubit),
+          if (state.effectiveShowScrollbar) _alwaysShowScrollbar(state, cubit),
           _fontSettings(context),
         ],
       ),
@@ -180,6 +185,15 @@ class AppearanceSettingPage extends StatelessWidget {
     );
   }
 
+  Widget _comicDetail(BuildContext context) {
+    return settingCategoryTile(
+      icon: Icons.article_outlined,
+      title: t.settings.comicDetail,
+      subtitle: t.settings.comicDetailSubtitle,
+      onTap: () => context.pushRoute(const ComicDetailSettingRoute()),
+    );
+  }
+
   Widget _showPluginHome(GlobalSettingState state, GlobalSettingCubit cubit) {
     return SwitchListTile(
       secondary: const Icon(Icons.home_outlined),
@@ -224,6 +238,37 @@ class AppearanceSettingPage extends StatelessWidget {
       onChanged: (bool value) {
         cubit.updateState(
           (current) => current.copyWith(showSearchBookmark: value),
+        );
+      },
+    );
+  }
+
+  Widget _showScrollbar(GlobalSettingState state, GlobalSettingCubit cubit) {
+    return SwitchListTile(
+      secondary: const Icon(Icons.swap_vert),
+      title: Text(t.settings.showScrollbar),
+      subtitle: Text(t.settings.showScrollbarSubtitle),
+      thumbIcon: kSettingSwitchThumbIcon,
+      value: state.effectiveShowScrollbar,
+      onChanged: (bool value) {
+        cubit.updateState((current) => current.copyWith(showScrollbar: value));
+      },
+    );
+  }
+
+  Widget _alwaysShowScrollbar(
+    GlobalSettingState state,
+    GlobalSettingCubit cubit,
+  ) {
+    return SwitchListTile(
+      secondary: const Icon(Icons.push_pin_outlined),
+      title: Text(t.settings.alwaysShowScrollbar),
+      subtitle: Text(t.settings.alwaysShowScrollbarSubtitle),
+      thumbIcon: kSettingSwitchThumbIcon,
+      value: state.alwaysShowScrollbar,
+      onChanged: (bool value) {
+        cubit.updateState(
+          (current) => current.copyWith(alwaysShowScrollbar: value),
         );
       },
     );

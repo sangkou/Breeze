@@ -30,6 +30,12 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,--pack-dyn-relocs=android");
     }
 
+    // lmdb-sys 的 Windows 实现调用 InitializeSecurityDescriptor /
+    // SetSecurityDescriptorDacl，但没有自己声明 advapi32 依赖。
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rustc-link-lib=advapi32");
+    }
+
     let manifest_dir = PathBuf::from(
         env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be available"),
     );

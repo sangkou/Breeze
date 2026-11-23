@@ -31,7 +31,11 @@ class DiscoverRouter {
 
     switch (type) {
       case 'openSearch':
-        await _openSearch(context, asJsonMap(action['payload']));
+        await _openSearch(
+          context,
+          asJsonMap(action['payload']),
+          currentFrom: currentFrom,
+        );
       case 'openWeb':
         await _openWeb(context, asJsonMap(action['payload']));
       case 'openPluginFunction':
@@ -47,43 +51,26 @@ class DiscoverRouter {
           currentFrom: currentFrom,
         );
       case 'openComicList':
-        await _openComicList(context, asJsonMap(action['payload']));
+        await _openComicList(
+          context,
+          asJsonMap(action['payload']),
+          currentFrom: currentFrom,
+        );
       case 'openComicInfo':
-        await _openComicInfo(context, asJsonMap(action['payload']));
+        await _openComicInfo(
+          context,
+          asJsonMap(action['payload']),
+          currentFrom: currentFrom,
+        );
     }
-  }
-
-  /// 为需要插件来源的动作自动补全 source。
-  static Map<String, dynamic> attachSource(
-    Map<String, dynamic> action,
-    String from,
-  ) {
-    final type = action['type']?.toString().trim() ?? '';
-    if (type != 'openPluginFunction' &&
-        type != 'openCloudFavorite' &&
-        type != 'openSearch' &&
-        type != 'openComicList' &&
-        type != 'openComicInfo') {
-      return action;
-    }
-
-    final payload = Map<String, dynamic>.from(asJsonMap(action['payload']));
-    payload['source'] = from;
-
-    if (type == 'openComicList') {
-      final scene = Map<String, dynamic>.from(asJsonMap(payload['scene']));
-      scene['source'] = from;
-      payload['scene'] = scene;
-    }
-
-    return Map<String, dynamic>.from(action)..['payload'] = payload;
   }
 
   static Future<void> _openSearch(
     BuildContext context,
-    Map<String, dynamic> payload,
-  ) async {
-    final source = _sourceFromString(payload['source']?.toString());
+    Map<String, dynamic> payload, {
+    required String currentFrom,
+  }) async {
+    final source = currentFrom.trim();
     final extern = _normalizeOpenSearchExtern(payload);
     final keywordFromPayload = payload['keyword']?.toString() ?? '';
     final keywordFromExtern = extern['keyword']?.toString() ?? '';
@@ -128,7 +115,7 @@ class DiscoverRouter {
     Map<String, dynamic> payload, {
     required String currentFrom,
   }) async {
-    final source = _sourceFromString(payload['source']?.toString());
+    final source = currentFrom.trim();
     if (source.isEmpty) {
       showErrorToast(t.error.missingPluginSource(action: t.oldHome.function));
       return;
@@ -141,11 +128,8 @@ class DiscoverRouter {
     final title = payload['title']?.toString().trim() ?? t.oldHome.function;
     final presentation = payload['presentation']?.toString().trim() ?? 'page';
 
-    Future<void> onAction(Map<String, dynamic> action) => route(
-      context,
-      action: attachSource(action, source),
-      currentFrom: currentFrom,
-    );
+    Future<void> onAction(Map<String, dynamic> action) =>
+        route(context, action: action, currentFrom: currentFrom);
 
     if (presentation != 'dialog') {
       if (!context.mounted) {
@@ -185,8 +169,7 @@ class DiscoverRouter {
     Map<String, dynamic> payload, {
     required String currentFrom,
   }) async {
-    final parsed = _sourceFromString(payload['source']?.toString());
-    final source = parsed.isEmpty ? currentFrom : parsed;
+    final source = currentFrom.trim();
     if (source.isEmpty) {
       showErrorToast(
         t.error.missingPluginSource(action: t.oldHome.cloudFavorite),
@@ -211,9 +194,13 @@ class DiscoverRouter {
 
   static Future<void> _openComicList(
     BuildContext context,
-    Map<String, dynamic> payload,
-  ) async {
-    final scene = ComicListScene.fromMap(asJsonMap(payload['scene']));
+    Map<String, dynamic> payload, {
+    required String currentFrom,
+  }) async {
+    final scene = ComicListScene.fromMap(
+      asJsonMap(payload['scene']),
+      source: currentFrom,
+    );
 
     if (!context.mounted) {
       return;
@@ -223,14 +210,15 @@ class DiscoverRouter {
 
   static Future<void> _openComicInfo(
     BuildContext context,
-    Map<String, dynamic> payload,
-  ) async {
+    Map<String, dynamic> payload, {
+    required String currentFrom,
+  }) async {
     final comicId = payload['comicId']?.toString().trim() ?? '';
     if (comicId.isEmpty) {
       return;
     }
 
-    final source = _sourceFromString(payload['source']?.toString());
+    final source = currentFrom.trim();
     if (source.isEmpty) {
       return;
     }
@@ -267,9 +255,5 @@ class DiscoverRouter {
     }
 
     return extern;
-  }
-
-  static String _sourceFromString(String? source) {
-    return (source ?? '').trim();
   }
 }

@@ -25,7 +25,7 @@ class PluginCard extends StatelessWidget {
   final String pluginUuid;
   final PluginRuntimeState pluginState;
 
-  /// 全局 cubit 的 infos[uuid]：null 表示尚未加载（后台 warmup 会补上）。
+  /// 全局 cubit 的 infos[uuid]：null 表示 DB 也没有缓存，等待补拉或手动重试。
   final Map<String, dynamic>? info;
 
   /// 全局 cubit 的 infoErrors[uuid]：有值表示最近一次 getInfo 失败。

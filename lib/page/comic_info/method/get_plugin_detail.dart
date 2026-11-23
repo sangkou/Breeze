@@ -75,16 +75,19 @@ Future<PluginComicDetail> getComicDetailByPlugin(
   final resolvedFrom = (resolvedPluginId).trim();
   final payload = {'comicId': comicId};
 
-  final map = await callUnifiedComicPlugin(
+  final response = await callUnifiedComicPlugin(
     from: resolvedPluginId,
     fnPath: 'getComicDetail',
     core: payload,
     extern: extern,
   );
-  final detail = UnifiedPluginDetailResponse.fromMap(map);
+  final detail = UnifiedPluginDetailResponse.fromMap(
+    response.data,
+    source: response.source,
+  );
   final normalInfo = normal.NormalComicAllInfo.fromJson(detail.normal);
   final source = PluginComicDetailSource(
-    from: resolvedFrom.isEmpty ? from : resolvedFrom,
+    from: response.source.isNotEmpty ? response.source : resolvedFrom,
     normalInfo: normalInfo,
     raw: detail.raw,
   );
@@ -114,14 +117,17 @@ Future<UnifiedPluginChapterResponse> getComicChapterByPlugin(
           .trim();
   final payload = {'comicId': comicId, 'chapterId': chapterId};
 
-  final map = await callUnifiedComicPlugin(
+  final response = await callUnifiedComicPlugin(
     from: resolvedPluginId,
     fnPath: 'getChapter',
     core: payload,
     extern: extern,
     runtimeName: runtimeName,
   );
-  return UnifiedPluginChapterResponse.fromMap(map);
+  return UnifiedPluginChapterResponse.fromMap(
+    response.data,
+    source: response.source,
+  );
 }
 
 Future<UnifiedPluginPreviewResponse> getComicPreviewByPlugin(
@@ -134,13 +140,16 @@ Future<UnifiedPluginPreviewResponse> getComicPreviewByPlugin(
   final resolvedPluginId =
       (pluginId?.trim().isNotEmpty == true ? pluginId!.trim() : from.trim())
           .trim();
-  final map = await callUnifiedComicPlugin(
+  final response = await callUnifiedComicPlugin(
     from: resolvedPluginId,
     fnPath: 'getPreview',
     core: {'comicId': comicId, 'page': page},
     extern: extern,
   );
-  return UnifiedPluginPreviewResponse.fromMap(map);
+  return UnifiedPluginPreviewResponse.fromMap(
+    response.data,
+    source: response.source,
+  );
 }
 
 /// 有完整 order（全部 > 0）时按 order 升序稳定排序，否则保持原样返回。

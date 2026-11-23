@@ -9,15 +9,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
+import 'package:zephyr/util/ohos/platform.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/i18n/strings.g.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/object_box/model.dart';
 import 'package:zephyr/page/bookshelf/bloc/folder_shelf_bloc.dart';
 import 'package:zephyr/page/bookshelf/cubit/bookshelf_search_cubit.dart';
 import 'package:zephyr/page/bookshelf/cubit/search_status.dart';
 import 'package:zephyr/page/bookshelf/method/method.dart';
+import 'package:zephyr/page/bookshelf/method/local_comic_import.dart';
+import 'package:zephyr/page/bookshelf/method/local_comic_picker.dart';
 import 'package:zephyr/page/bookshelf/models/models.dart';
 import 'package:zephyr/page/bookshelf/service/bookshelf_view_pref_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_folder_service.dart';
@@ -119,6 +121,9 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
   /// 这一帧不能恢复，否则会按旧内容的长度把位置夹成 0。必须等真正进入
   /// loading 再结束，才说明拿到的是新路径的数据。
   bool _pendingRestoreArmed = false;
+
+  /// 正在补封面，避免同一轮里重复触发。
+  bool _loadingCovers = false;
   @override
   void initState() {
     super.initState();
@@ -280,6 +285,7 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
           _pendingRestoreArmed = false;
         }
         _scheduleRestoreScroll(state);
+        _loadFolderCovers(state);
         _syncBackEntry(state);
       },
       builder: (context, state) {
@@ -336,6 +342,18 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
       final max = _shelfScrollController.position.maxScrollExtent;
       _shelfScrollController.jumpTo(target.clamp(0.0, max).toDouble());
     });
+  }
+
+  /// 文件夹封面需要异步查库：数据加载完补一次，补齐后刷新卡片。
+  void _loadFolderCovers(FolderShelfState state) {
+    if (state.isLoading || _loadingCovers) return;
+    _loadingCovers = true;
+    unawaited(
+      FolderCoverService.instance.ensureCovers(state.folders).then((changed) {
+        _loadingCovers = false;
+        if (changed && mounted) setState(() {});
+      }),
+    );
   }
 
   /// 列表滚动方向联动悬浮物：上滑浏览时隐藏，下滑/回顶时显示。
@@ -528,6 +546,12 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
         ),
         if (state.mode == ShelfPageMode.download)
           menuChild(
+            child: const Icon(Icons.library_add_outlined),
+            label: t.bookshelf.importExternalComic,
+            onTap: () => _importExternalComic(context),
+          ),
+        if (state.mode == ShelfPageMode.download)
+          menuChild(
             child: const Icon(Icons.file_download_outlined),
             label: t.bookshelf.importComic,
             onTap: () => _importComic(context),
@@ -570,6 +594,8 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
               prev.folderComicCounts != curr.folderComicCounts ||
               prev.search != curr.search ||
               prev.isLoading != curr.isLoading ||
+              prev.isLoadingMore != curr.isLoadingMore ||
+              prev.hasMore != curr.hasMore ||
               prev.error != curr.error ||
               prev.sortAscending != curr.sortAscending ||
               prev.selectionMode != curr.selectionMode,
@@ -617,11 +643,11 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
             }
 
             final comicType = _comicEntryTypeOf(state.mode);
-            final folderSyncIdMap = buildFolderSyncIdMap(
-              _folderTypeOf(state.mode),
-            );
-            String folderPathOf(ComicFolder f) =>
-                ComicFolderService.folderPath(f, syncIdMap: folderSyncIdMap);
+            // 列表里的文件夹都是当前路径的直接子文件夹，路径可直接由当前路径拼出，
+            // 避免在 build 里做异步查询。
+            String folderPathOf(ComicFolder f) => state.currentPath.isEmpty
+                ? '/${f.name}'
+                : '${state.currentPath}/${f.name}';
             final listPadding = EdgeInsets.fromLTRB(
               10,
               state.selectionMode ? 10 : (state.isRoot ? 10 : 64),
@@ -694,6 +720,23 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
                     itemCount: totalCount,
                     itemBuilder: shelfItemBuilder,
                   );
+            // 滚到底部附近时自动加载下一页；droppable 保证并发触发只跑一次。
+            final scrollable = NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (!state.hasMore || state.isLoading || state.isLoadingMore) {
+                  return false;
+                }
+                final metrics = notification.metrics;
+                if (metrics.axis != Axis.vertical) return false;
+                if (metrics.maxScrollExtent - metrics.pixels <= 600) {
+                  context.read<FolderShelfBloc>().add(
+                    const FolderShelfLoadMoreRequested(),
+                  );
+                }
+                return false;
+              },
+              child: shelfList,
+            );
             return RefreshIndicator(
               onRefresh: () async {
                 context.read<FolderShelfBloc>().add(
@@ -702,8 +745,8 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
               },
               child: Stack(
                 children: [
-                  shelfList,
-                  if (state.isLoading)
+                  scrollable,
+                  if (state.isLoading || state.isLoadingMore)
                     const Positioned(
                       top: 0,
                       left: 0,
@@ -1107,16 +1150,8 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
       final state = context.read<FolderShelfBloc>().state;
       // 历史无 ComicLink：直接软删除历史本体（与旧 LocalShelfPage 一致）。
       if (state.mode == ShelfPageMode.history) {
-        final history = objectbox.unifiedHistoryBox
-            .query(UnifiedComicHistory_.uniqueKey.equals(uniqueKey))
-            .build()
-            .findFirst();
-        if (history != null) {
-          history
-            ..deleted = true
-            ..updatedAt = DateTime.now().toUtc();
-          objectbox.unifiedHistoryBox.put(history);
-        }
+        await database.histories.markDeletedByKey(uniqueKey);
+        if (!context.mounted) return;
         context.read<FolderShelfBloc>().add(const FolderShelfLoadRequested());
         return;
       }
@@ -1125,11 +1160,12 @@ class _FolderShelfPageContentState extends State<_FolderShelfPageContent>
         ShelfPageMode.download => ComicFolderType.download,
         ShelfPageMode.history => ComicFolderType.history,
       };
-      ComicLinkService.removeComic(
+      await ComicLinkService.removeComic(
         uniqueKey,
         state.currentPath.isEmpty ? null : state.currentPath,
         folderType,
       );
+      if (!context.mounted) return;
       context.read<FolderShelfBloc>().add(const FolderShelfLoadRequested());
     }
   }
@@ -1144,8 +1180,9 @@ Future<void> _showTargetFolderDialog(
   final mode = state.mode;
   final sourceFolderPaths = selectedFolderPaths ?? state.selectedFolderPaths;
   final type = _folderTypeOf(mode);
-  final allFolders = ComicFolderService.listAllFolders(type);
-  final syncIdMap = buildFolderSyncIdMap(type);
+  final allFolders = await ComicFolderService.listAllFolders(type);
+  if (!context.mounted) return;
+  final syncIdMap = {for (final folder in allFolders) folder.syncId: folder};
   final pathMap = {
     for (final folder in allFolders)
       folder.syncId: ComicFolderService.folderPath(
@@ -1187,6 +1224,63 @@ ComicFolderType _folderTypeOf(ShelfPageMode mode) {
     ShelfPageMode.download => ComicFolderType.download,
     ShelfPageMode.history => ComicFolderType.history,
   };
+}
+
+Future<void> _importExternalComic(BuildContext context) async {
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!Platform.isIOS && !isOhos)
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined),
+              title: Text(t.bookshelf.importExternalFolder),
+              subtitle: Text(t.bookshelf.importExternalFolderHint),
+              onTap: () => Navigator.of(sheetContext).pop('folder'),
+            ),
+          ListTile(
+            leading: const Icon(Icons.archive_outlined),
+            title: Text(t.bookshelf.importExternalArchive),
+            subtitle: Text(t.bookshelf.importExternalArchiveHint),
+            onTap: () => Navigator.of(sheetContext).pop('archive'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null) return;
+
+  try {
+    final picked = choice == 'folder'
+        ? await pickLocalComicDirectory()
+        : await pickLocalComicArchive();
+    if (picked == null) return;
+    if (!context.mounted) return;
+    showSuccessToast(t.bookshelf.importExternalStarted);
+
+    final result = await importLocalComic(
+      sourcePath: picked.path,
+      isDirectory: picked.isDirectory,
+      cleanupRoot: picked.cleanupRoot,
+      uncategorizedName: t.bookshelf.importUncategorized,
+    );
+
+    if (!context.mounted) return;
+    showSuccessToast(
+      t.bookshelf.importExternalCompleted(
+        title: result.title,
+        chapters: result.chapterCount,
+        images: result.imageCount,
+      ),
+    );
+    context.read<FolderShelfBloc>().add(const FolderShelfLoadRequested());
+  } catch (e, st) {
+    logger.e(e, stackTrace: st);
+    if (!context.mounted) return;
+    showErrorToast(t.error.importFailed(error: e.toString()));
+  }
 }
 
 Future<void> _importComic(BuildContext context) async {

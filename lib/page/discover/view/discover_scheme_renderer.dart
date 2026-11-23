@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/type/pipe.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/device/responsive.dart';
 import 'package:zephyr/util/json/json_value.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry.dart';

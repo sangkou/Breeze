@@ -1,3 +1,4 @@
+pub mod bytecode;
 pub mod global_runtime;
 pub mod host_runtime;
 pub mod html;

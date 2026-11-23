@@ -1,0 +1,10 @@
+name: tray_manager
+version: 0.8.3
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter

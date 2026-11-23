@@ -62,7 +62,8 @@ class _ReadModeSection extends StatelessWidget {
     final globalSettingCubit = context.read<GlobalSettingCubit>();
     final isDesktopPlatform =
         !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
-    final isMobilePlatform = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final isMobilePlatform =
+        !kIsWeb && (Platform.isAndroid || Platform.isIOS || isOhos);
     // 本漫 tab 读有效值：无覆盖时显示的即全局值，不搞特殊状态；
     // 点选即写覆盖（点当前高亮的值 = 再确认一次，无变化不写库）。
     final effective = context.watchTargetReadSetting();

@@ -141,10 +141,10 @@ class SearchResultBar extends StatelessWidget implements PreferredSizeWidget {
         extern: extern,
       );
       final scheme = Map<String, dynamic>.from(
-        (response['scheme'] as Map?) ?? const <String, dynamic>{},
+        (response.data['scheme'] as Map?) ?? const <String, dynamic>{},
       );
       final data = Map<String, dynamic>.from(
-        (response['data'] as Map?) ?? const <String, dynamic>{},
+        (response.data['data'] as Map?) ?? const <String, dynamic>{},
       );
       final fields = ((scheme['fields'] as List?) ?? const [])
           .whereType<Map>()
@@ -160,7 +160,7 @@ class SearchResultBar extends StatelessWidget implements PreferredSizeWidget {
       );
       _mergeExternValues(fields, extern, values);
       return _AdvancedSearchScheme(
-        source: response['source']?.toString() ?? from,
+        source: response.source.isNotEmpty ? response.source : from,
         fields: fields,
         values: values,
       );

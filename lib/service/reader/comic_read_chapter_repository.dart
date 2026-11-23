@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 
 /// 已读章节仓库。
 ///
@@ -20,41 +19,34 @@ class ComicReadChapterRepository {
   Stream<String> get changes => _changes.stream;
 
   /// 查询某本漫画已读章节 id 集合。
-  Set<String> readChapterIds({
+  Future<Set<String>> readChapterIds({
     required String source,
     required String comicId,
-  }) {
+  }) async {
     final resolvedSource = source.trim();
     final resolvedComicId = comicId.trim();
     if (resolvedSource.isEmpty || resolvedComicId.isEmpty) {
       return const <String>{};
     }
 
-    final query = objectbox.comicReadChapterBox
-        .query(
-          ComicReadChapter_.source.equals(resolvedSource) &
-              ComicReadChapter_.comicId.equals(resolvedComicId),
-        )
-        .build();
-    try {
-      return query
-          .find()
-          .map((item) => item.chapterId)
-          .where((id) => id.isNotEmpty)
-          .toSet();
-    } finally {
-      query.close();
-    }
+    final rows = await database.readChapters.listByComic(
+      source: resolvedSource,
+      comicId: resolvedComicId,
+    );
+    return rows
+        .map((item) => item.chapterId)
+        .where((id) => id.isNotEmpty)
+        .toSet();
   }
 
   /// 标记章节已读；同一章重复调用只刷新阅读时间。
-  void markRead({
+  Future<void> markRead({
     required String source,
     required String comicId,
     required String chapterId,
     required String chapterTitle,
     required int chapterOrder,
-  }) {
+  }) async {
     final resolvedSource = source.trim();
     final resolvedComicId = comicId.trim();
     final resolvedChapterId = chapterId.trim();
@@ -69,31 +61,26 @@ class ComicReadChapterRepository {
       resolvedComicId,
       resolvedChapterId,
     );
-    final box = objectbox.comicReadChapterBox;
-    final query = box.query(ComicReadChapter_.uniqueKey.equals(key)).build();
-    try {
-      final now = DateTime.now().toUtc();
-      final entity =
-          query.findFirst() ??
-          ComicReadChapter(
-            uniqueKey: key,
-            source: resolvedSource,
-            comicId: resolvedComicId,
-            chapterId: resolvedChapterId,
-            chapterTitle: chapterTitle.trim(),
-            chapterOrder: chapterOrder,
-            readAt: now,
-            updatedAt: now,
-          );
-      entity
-        ..chapterTitle = chapterTitle.trim()
-        ..chapterOrder = chapterOrder
-        ..readAt = now
-        ..updatedAt = now;
-      box.put(entity);
-    } finally {
-      query.close();
-    }
+    final now = DateTime.now().toUtc();
+    final existing = await database.readChapters.getByKey(key);
+    final entity =
+        existing ??
+        ComicReadChapter(
+          uniqueKey: key,
+          source: resolvedSource,
+          comicId: resolvedComicId,
+          chapterId: resolvedChapterId,
+          chapterTitle: chapterTitle.trim(),
+          chapterOrder: chapterOrder,
+          readAt: now,
+          updatedAt: now,
+        );
+    entity
+      ..chapterTitle = chapterTitle.trim()
+      ..chapterOrder = chapterOrder
+      ..readAt = now
+      ..updatedAt = now;
+    await database.readChapters.put(entity);
 
     _changes.add('$resolvedSource:$resolvedComicId');
   }

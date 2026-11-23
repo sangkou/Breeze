@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Breeze OHOS entry"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Breeze"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Breeze"
+    }
+  ]
+}

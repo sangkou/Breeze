@@ -57,6 +57,8 @@ async-trait = "0.1.51"
 anyhow = "1.0.102"
 tracing = "0.1.44"
 base64 = "0.22.1"
+# 字节码缓存用 xxh3 做源码指纹（与 windcore 已有的编码工具同源，稳定且快）。
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 rustls = "0.23"
 webpki-roots = "1.0"
 filetime = "0.2.29"
@@ -96,4 +98,4 @@ tiny_http = "0.12.0"
 regex = "1.12.4"
 
 [patch.crates-io]
-rquickjs-sys = { git = "https://github.com/deretame/breeze-rquickjs-sys", rev = "846889c482ee7511f558595384673f55c00c9f4a" }
+rquickjs-sys = { git = "https://github.com/deretame/breeze-rquickjs-sys", rev = "e26cb76ba763f398cd3187c8bd1b508b23af3816" }

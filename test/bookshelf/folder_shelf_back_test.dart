@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/config/global/global_setting.dart';
+import 'package:zephyr/main.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/object_box/model.dart';
 import 'package:zephyr/page/bookshelf/bloc/folder_shelf_bloc.dart';
@@ -22,18 +23,18 @@ import '../test_helper.dart';
 /// 有 entry → 库正常 pop → entry 消费 → bloc 回退一级；
 /// 到根（entry 已清）→ 放行，库按既有逻辑切 tab/退应用。
 ///
-/// 注意：testWidgets 测试体跑在 FakeAsync zone，真异步（ObjectBox IO）
+/// 注意：testWidgets 测试体跑在 FakeAsync zone，真异步（SQLite IO）
 /// 必须包在 tester.runAsync 里走真实时间，否则零 CPU 卡死；
 /// pump 只负责刷 microtask + 重建帧。
 void main() {
   // setUpAll 跑在真实 zone，可以直接做真异步初始化。
   setUpAll(() async {
-    await TestObjectBoxHelper.setUpTestObjectBox();
+    await TestDatabaseHelper.setUpTestDatabase();
   });
   tearDownAll(() async {
-    await TestObjectBoxHelper.tearDownTestObjectBox();
+    await TestDatabaseHelper.tearDownTestDatabase();
   });
-  tearDown(TestObjectBoxHelper.cleanComicFolderBoxes);
+  tearDown(TestDatabaseHelper.cleanComicFolderBoxes);
 
   /// 等指定文案出现：真实等待让后台查询回包，pump 刷重建。
   /// loading 态有 shimmer 无限动画，不能用 pumpAndSettle。
@@ -83,13 +84,17 @@ void main() {
 
   testWidgets('进两级文件夹后返回逐级回退，到根放行', (tester) async {
     await tester.runAsync(() async {
-      final parent = ComicFolderService.createFolder(
+      final parent = await ComicFolderService.createFolder(
         '',
         'parent',
         ComicFolderType.favorite,
       );
-      final parentPath = ComicFolderService.folderPath(parent);
-      ComicFolderService.createFolder(
+      final all = await database.folders.getAll();
+      final parentPath = ComicFolderService.folderPath(
+        parent,
+        syncIdMap: {for (final f in all) f.syncId: f},
+      );
+      await ComicFolderService.createFolder(
         parentPath,
         'child',
         ComicFolderType.favorite,
@@ -129,7 +134,11 @@ void main() {
 
   testWidgets('根目录直接返回不拦截', (tester) async {
     await tester.runAsync(() async {
-      ComicFolderService.createFolder('', 'solo', ComicFolderType.favorite);
+      await ComicFolderService.createFolder(
+        '',
+        'solo',
+        ComicFolderType.favorite,
+      );
     });
 
     await pumpShelf(tester);
@@ -146,7 +155,7 @@ void main() {
   testWidgets('进文件夹时列表先回顶再渲染', (tester) async {
     await tester.runAsync(() async {
       for (var i = 0; i < 40; i++) {
-        ComicFolderService.createFolder(
+        await ComicFolderService.createFolder(
           '',
           'f${i.toString().padLeft(2, '0')}',
           ComicFolderType.favorite,
@@ -158,8 +167,10 @@ void main() {
     // 默认倒序，最晚建的 f39 在最前（懒加载只渲染可见行，等 f00 必超时）。
     await waitForText(tester, 'f39');
 
-    double offset() =>
-        tester.state<ScrollableState>(find.byType(Scrollable).first).position.pixels;
+    double offset() => tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .pixels;
 
     // 向下滚一段：offset > 0。fling 有惯性，多推几帧等它停稳再点，
     // 否则 tap 会打偏（hitTestWarning）根本没进文件夹。

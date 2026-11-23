@@ -2,7 +2,7 @@ import 'package:bloc/bloc.dart';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/picture/picture.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 import 'package:zephyr/widgets/picture_bloc/bloc/picture_event.dart';
 import 'package:zephyr/widgets/picture_bloc/bloc/picture_state.dart';
 

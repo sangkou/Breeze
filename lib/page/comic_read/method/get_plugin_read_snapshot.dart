@@ -151,11 +151,11 @@ Future<ComicReadSnapshot> _fetchSnapshot({
     core['chapterId'] = chapterId;
   }
 
-  final response = await callUnifiedComicPlugin(
+  final result = await callUnifiedComicPlugin(
     from: from,
     fnPath: 'getReadSnapshot',
     core: core,
     extern: extern,
   );
-  return ComicReadSnapshot.fromMap(response);
+  return ComicReadSnapshot.fromMap(result.data, source: result.source);
 }

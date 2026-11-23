@@ -30,11 +30,12 @@ class ForegroundTaskService {
   bool get _keepAliveEnabled =>
       Platform.isAndroid && globalSetting.androidKeepAliveEnabled;
 
-  bool get _hasPendingDownloads =>
-      DownloadQueueManager.instance.queueLength > 0;
+  Future<bool> get _hasPendingDownloads async =>
+      (await DownloadQueueManager.instance.queueLength) > 0;
 
   /// 初始化前台任务配置。应用启动时调用一次即可。
   void init() {
+    if (!Platform.isAndroid) return;
     if (_initialized) return;
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
@@ -61,9 +62,10 @@ class ForegroundTaskService {
   /// 应用冷启动后根据保活开关与下载队列同步前台服务。
   Future<void> syncOnAppStart() async {
     if (!Platform.isAndroid) return;
-    if (!_keepAliveEnabled && !_hasPendingDownloads) return;
+    final hasPending = await _hasPendingDownloads;
+    if (!_keepAliveEnabled && !hasPending) return;
     try {
-      await _ensureRunning(forDownload: _hasPendingDownloads);
+      await _ensureRunning(forDownload: hasPending);
     } catch (e, stackTrace) {
       // 冷启动时通知权限被拒或服务启动失败属于可恢复状态，不应作为未捕获异常上报。
       logger.w('前台服务冷启动失败', error: e, stackTrace: stackTrace);
@@ -75,13 +77,14 @@ class ForegroundTaskService {
   /// 若前台服务已在运行（例如已有下载任务），则不重复启动。
   Future<void> enableKeepAlive() async {
     if (!Platform.isAndroid) return;
+    final hasPending = await _hasPendingDownloads;
     if (await FlutterForegroundTask.isRunningService) {
-      if (!_hasPendingDownloads) {
+      if (!hasPending) {
         await _applyKeepAliveNotification();
       }
       return;
     }
-    await _ensureRunning(forDownload: _hasPendingDownloads);
+    await _ensureRunning(forDownload: hasPending);
   }
 
   /// 关闭保活（设置开关关闭时调用）。
@@ -89,7 +92,7 @@ class ForegroundTaskService {
   /// 若仍有下载/排队任务，则不停止前台服务，仅切回下载通知样式。
   Future<void> disableKeepAlive() async {
     if (!Platform.isAndroid) return;
-    if (_hasPendingDownloads) {
+    if (await _hasPendingDownloads) {
       if (await FlutterForegroundTask.isRunningService) {
         await _applyDownloadNotification();
       }

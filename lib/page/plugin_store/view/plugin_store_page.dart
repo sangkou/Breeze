@@ -1,13 +1,13 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/page/plugin_store/cubit/plugin_store_cubit.dart';
 import 'package:zephyr/page/plugin_store/widgets/cloud_plugin_card.dart';
 import 'package:zephyr/page/plugin_store/widgets/plugin_store_status_banner.dart';
 import 'package:zephyr/plugin/utils/plugin_local_file_picker.dart';
+import 'package:zephyr/util/system/external_link.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 @RoutePage()
@@ -260,7 +260,7 @@ class _PluginStorePageContentState extends State<_PluginStorePageContent> {
       showErrorToast(t.plugin.invalidLink(url: resolved));
       return;
     }
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final opened = await openExternalUrl(uri);
     if (!opened) {
       showErrorToast(t.plugin.cannotOpenLink(url: resolved));
     }

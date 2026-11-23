@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/main.dart';
 
 /// 当前打开漫画的独立阅读设置：与全局共用一套 `ReadSettingState` 结构。
@@ -47,17 +46,22 @@ class ComicReadPreferenceState {
 class ComicReadPreferenceCubit extends Cubit<ComicReadPreferenceState> {
   ComicReadPreferenceCubit() : super(const ComicReadPreferenceState());
 
+  /// 绑定代次：异步加载返回时用于丢弃过期结果。
+  int _bindToken = 0;
+
   /// 进入阅读页时绑定当前漫画，加载本地独立设置。
-  void bind(String source, String comicId) {
+  Future<void> bind(String source, String comicId) async {
     final key = ComicReadPreferenceService.keyFor(source, comicId);
     if (state.uniqueKey == key) {
-      refresh();
+      await refresh();
       return;
     }
-    final override = ComicReadPreferenceService.findOverrideSetting(
+    final token = ++_bindToken;
+    final override = await ComicReadPreferenceService.findOverrideSetting(
       source,
       comicId,
     );
+    if (isClosed || token != _bindToken) return;
     emit(
       ComicReadPreferenceState(
         source: source,
@@ -70,17 +74,25 @@ class ComicReadPreferenceCubit extends Cubit<ComicReadPreferenceState> {
 
   /// 离开阅读页时解绑，避免旧漫画的覆盖值泄漏到别处。
   void unbind() {
+    _bindToken++;
     if (state.uniqueKey.isEmpty && !state.hasOverride) return;
     emit(const ComicReadPreferenceState());
   }
 
   /// 重新从数据库加载（同步完成后调用）。
-  void refresh() {
+  Future<void> refresh() async {
     if (state.uniqueKey.isEmpty) return;
-    final override = ComicReadPreferenceService.findOverrideSetting(
-      state.source,
-      state.comicId,
+    final token = _bindToken;
+    final uniqueKey = state.uniqueKey;
+    final source = state.source;
+    final comicId = state.comicId;
+    final override = await ComicReadPreferenceService.findOverrideSetting(
+      source,
+      comicId,
     );
+    if (isClosed || token != _bindToken || state.uniqueKey != uniqueKey) {
+      return;
+    }
     if (!_overrideEquals(override, state.override)) {
       emit(state.copyWith(override: override, clearOverride: override == null));
     }
@@ -147,20 +159,12 @@ class ComicReadPreferenceService {
       '${source.trim()}:${comicId.trim()}';
 
   /// 返回本漫独立设置，未启用/已删除时返回 null（= 跟随全局）。
-  static ({ReadSettingState setting, Set<String> keys})? findOverrideSetting(
-    String source,
-    String comicId,
-  ) {
+  static Future<({ReadSettingState setting, Set<String> keys})?>
+  findOverrideSetting(String source, String comicId) async {
     final key = keyFor(source, comicId);
     if (key == ':') return null;
-    final query = objectbox.comicReadPreferenceBox
-        .query(ComicReadPreference_.uniqueKey.equals(key))
-        .build();
-    try {
-      return query.findFirst()?.overrideSetting;
-    } finally {
-      query.close();
-    }
+    final existing = await database.readPreferences.getByKey(key);
+    return existing?.overrideSetting;
   }
 
   /// 把 [updated] 相对 [current] 的变化合并进本漫设置并写回。
@@ -177,49 +181,43 @@ class ComicReadPreferenceService {
     final key = keyFor(source, comicId);
     if (key == ':') return const PerComicUpsertResult(null, {});
     final now = DateTime.now().toUtc();
-    final box = objectbox.comicReadPreferenceBox;
-    final query = box.query(ComicReadPreference_.uniqueKey.equals(key)).build();
-    try {
-      final existing = query.findFirst();
-      if (existing == null) {
-        final entity = ComicReadPreference(
-          uniqueKey: key,
-          source: source,
-          comicId: comicId,
-          updatedAt: now,
-          deleted: false,
-        );
-        final changedKeys = entity.applyChanges(
-          current,
-          updated,
-          includeKeys: includeKeys,
-        );
-        if (changedKeys.isEmpty) {
-          return const PerComicUpsertResult(null, {});
-        }
-        box.put(entity);
-        return PerComicUpsertResult(entity.overrideSetting, changedKeys);
-      }
-      // 有碑先清：墓碑行的 patch 已清空，这里直接复用行对象重记本次变化。
-      if (existing.deleted) existing.overridesJson = '{}';
-      final changedKeys = existing.applyChanges(
+    final existing = await database.readPreferences.getByKey(key);
+    if (existing == null) {
+      final entity = ComicReadPreference(
+        uniqueKey: key,
+        source: source,
+        comicId: comicId,
+        updatedAt: now,
+        deleted: false,
+      );
+      final changedKeys = entity.applyChanges(
         current,
         updated,
         includeKeys: includeKeys,
       );
       if (changedKeys.isEmpty) {
-        return PerComicUpsertResult(existing.overrideSetting, const {});
+        return const PerComicUpsertResult(null, {});
       }
-      existing
-        ..source = source
-        ..comicId = comicId
-        ..updatedAt = now
-        ..deleted = false;
-      box.put(existing);
-      return PerComicUpsertResult(existing.overrideSetting, changedKeys);
-    } finally {
-      query.close();
+      await database.readPreferences.put(entity);
+      return PerComicUpsertResult(entity.overrideSetting, changedKeys);
     }
+    // 有碑先清：墓碑行的 patch 已清空，这里直接复用行对象重记本次变化。
+    if (existing.deleted) existing.overridesJson = '{}';
+    final changedKeys = existing.applyChanges(
+      current,
+      updated,
+      includeKeys: includeKeys,
+    );
+    if (changedKeys.isEmpty) {
+      return PerComicUpsertResult(existing.overrideSetting, const {});
+    }
+    existing
+      ..source = source
+      ..comicId = comicId
+      ..updatedAt = now
+      ..deleted = false;
+    await database.readPreferences.put(existing);
+    return PerComicUpsertResult(existing.overrideSetting, changedKeys);
   }
 
   /// 把本漫独立设置合并到全局上，算出有效阅读设置。
@@ -251,19 +249,13 @@ class ComicReadPreferenceService {
     final key = keyFor(source, comicId);
     if (key == ':') return;
     final now = DateTime.now().toUtc();
-    final box = objectbox.comicReadPreferenceBox;
-    final query = box.query(ComicReadPreference_.uniqueKey.equals(key)).build();
-    try {
-      final existing = query.findFirst();
-      if (existing == null) return;
-      existing
-        ..overridesJson = '{}'
-        ..updatedAt = now
-        ..deleted = true;
-      box.put(existing);
-    } finally {
-      query.close();
-    }
+    final existing = await database.readPreferences.getByKey(key);
+    if (existing == null) return;
+    existing
+      ..overridesJson = '{}'
+      ..updatedAt = now
+      ..deleted = true;
+    await database.readPreferences.put(existing);
   }
 }
 

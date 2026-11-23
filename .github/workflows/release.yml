@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+# 同一个版本号只允许一条发布流水线，避免重复触发导致 Release 资产互相覆盖
+concurrency:
+  group: release-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
 env:
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
   BREEZE_PLUGIN_GITHUB_TOKEN: ${{ secrets.BREEZE_PLUGIN_GITHUB_TOKEN != '' &&
@@ -595,10 +600,20 @@ jobs:
           path: Breeze-iOS.ipa
 
   # ══════════════════════════════════════════
-  # 6. 汇总发布至 GitHub Release
+  # 6. HarmonyOS 构建（复用 ohos-build.yml）
+  # ══════════════════════════════════════════
+  build-ohos:
+    uses: ./.github/workflows/ohos-build.yml
+    with:
+      arch: arm64
+      build_mode: release
+      entry: lib/main.dart
+
+  # ══════════════════════════════════════════
+  # 7. 汇总发布至 GitHub Release
   # ══════════════════════════════════════════
   publish:
-    needs: [ build-android, build-linux, build-windows, build-macos, build-ios ]
+    needs: [ build-android, build-linux, build-windows, build-macos, build-ios, build-ohos ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -613,7 +628,8 @@ jobs:
       - name: 重命名产物文件（追加版本后缀）
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          find release-assets -type f | while IFS= read -r file; do
+          # HAP 单独改名（见下一步），这里跳过，避免出现 entry-default-unsigned-<ver>.hap
+          find release-assets -type f ! -name '*.hap' | while IFS= read -r file; do
             dir="$(dirname "$file")"
             name="$(basename "$file")"
             ext="${name##*.}"
@@ -622,6 +638,18 @@ jobs:
             mv "$file" "$dir/$newname"
             echo "Renamed: $name -> $newname"
           done
+
+      - name: 重命名 HarmonyOS HAP
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          HAP="$(find release-assets -type f -name '*.hap' | head -n 1)"
+          if [ -z "$HAP" ]; then
+            echo "未找到 HarmonyOS HAP 产物。"
+            exit 1
+          fi
+          mkdir -p release-assets/ohos-hap
+          mv "$HAP" "release-assets/ohos-hap/Breeze-ohos-arm64-${VERSION}.hap"
+          ls -lh release-assets/ohos-hap
 
       - name: 提取日志并准备 Release 内容
         id: prepare
@@ -652,7 +680,9 @@ jobs:
             exit 1
           fi
           echo "| **Linux (DEB)** | [$DEB_FILE_NAME](https://github.com/$REPO/releases/download/$VERSION/$DEB_FILE_NAME) |" >> release_body.md
+          echo "| **HarmonyOS (未签名)** | [Breeze-ohos-arm64-${VERSION}.hap](https://github.com/$REPO/releases/download/$VERSION/Breeze-ohos-arm64-${VERSION}.hap) |" >> release_body.md
           echo -e "\n> 💡 **不知道该下载哪个文件？**\n> 请查看 [详细安装指南](https://github.com/$REPO#-%E5%A6%82%E4%BD%95%E5%AE%89%E8%A3%85)。" >> release_body.md
+          echo "> ⚠️ **HarmonyOS HAP 未签名**（仅 arm64，最低 HarmonyOS 5.0.5(17)）：需要用自己设备信任的证书/profile 自签后安装，不能用 OpenHarmony 测试证书装零售机。" >> release_body.md
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v3.0.0
@@ -667,6 +697,7 @@ jobs:
             release-assets/windows-exe/*.exe
             release-assets/macos-dmg/*.dmg
             release-assets/ios-ipa/*.ipa
+            release-assets/ohos-hap/*.hap
 
       - name: 发送 Release 到 Telegram
         env:
@@ -693,7 +724,7 @@ jobs:
             --data-urlencode "text=${TEXT}" \
             --data-urlencode "disable_web_page_preview=true"
 
-          mapfile -t files < <(find release-assets -type f \( -name "*.apk" -o -name "*.flatpak" -o -name "*.deb" -o -name "*.exe" -o -name "*.dmg" -o -name "*.ipa" \) | sort)
+          mapfile -t files < <(find release-assets -type f \( -name "*.apk" -o -name "*.flatpak" -o -name "*.deb" -o -name "*.exe" -o -name "*.dmg" -o -name "*.ipa" -o -name "*.hap" \) | sort)
 
           if [ "${#files[@]}" -eq 0 ]; then
             echo "未找到可发送附件，跳过。"
@@ -710,7 +741,7 @@ jobs:
           done
 
   # ══════════════════════════════════════════
-  # 7. 自动更新 Homebrew Tap (仅限 macOS Cask)
+  # 8. 自动更新 Homebrew Tap (仅限 macOS Cask)
   # ══════════════════════════════════════════
   update-homebrew:
     needs: [ publish ]
@@ -772,7 +803,7 @@ jobs:
           git commit -m "Update macOS Cask to ${{ github.event.inputs.version }} and clean up placeholders"
           git push
   # ══════════════════════════════════════════
-  # 8. 触发 Flatpak 软件源同步 (Breeze-flathub)
+  # 9. 触发 Flatpak 软件源同步 (Breeze-flathub)
   # ══════════════════════════════════════════
   update-flathub:
     needs: [ publish ]

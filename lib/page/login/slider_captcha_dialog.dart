@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/network/http/plugin/unified_comic_plugin.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 import 'package:zephyr/main.dart';
 
 /// 拼图滑块题目（插件 createFnPath 返回）。
@@ -201,12 +201,13 @@ class _SliderCaptchaDialogState extends State<SliderCaptchaDialog> {
       if (widget.createChallenge != null) {
         result = await widget.createChallenge!();
       } else {
-        result = await callUnifiedComicPlugin(
+        final response = await callUnifiedComicPlugin(
           from: widget.from,
           fnPath: widget.createFnPath,
           core: {...widget.values, 'values': widget.values},
           extern: const <String, dynamic>{},
         );
+        result = response.data;
       }
       if (!mounted) return;
       setState(() {
@@ -332,7 +333,7 @@ class _SliderCaptchaDialogState extends State<SliderCaptchaDialog> {
           },
           extern: const <String, dynamic>{},
         );
-        pass = result['pass']?.toString().trim() ?? '';
+        pass = result.data['pass']?.toString().trim() ?? '';
       }
       if (pass.trim().isEmpty) throw StateError(t.login.sliderFailed);
       if (!mounted) return;

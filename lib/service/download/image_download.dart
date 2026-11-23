@@ -105,12 +105,13 @@ Future<int> resolveDownloadConcurrency({
 }) async {
   const fallback = 5;
   try {
-    final data = await callUnifiedComicPlugin(
+    final result = await callUnifiedComicPlugin(
       from: from,
       pluginId: pluginId,
       fnPath: 'getDownloadConcurrency',
       core: const <String, dynamic>{},
     );
+    final data = result.data;
     Object? raw = data['concurrency'] ?? data['value'];
     if (raw == null && data['data'] is Map) {
       final nested = Map<String, dynamic>.from(data['data'] as Map);

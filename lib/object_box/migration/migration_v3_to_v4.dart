@@ -1,21 +1,21 @@
 import 'package:zephyr/config/global/color_theme_types.dart';
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 
-Future<void> migrateV3ToV4() async {
-  final removed = objectbox.downloadTaskBox.removeAll();
+Future<void> migrateV3ToV4(Database database) async {
+  final removed = await database.downloadTasks.removeAll();
   logger.d('[migration_v3_to_v4] removed DownloadTask rows: $removed');
 
-  final userSetting = objectbox.userSettingBox.get(1);
+  final userSetting = await database.userSettings.get();
   if (userSetting == null) {
     throw Exception('Global setting not found');
   }
 
-  final nextGlobalSetting = userSetting.globalSetting.copyWith(
+  userSetting.globalSetting = userSetting.globalSetting.copyWith(
     dynamicColor: false,
     seedColor: colorThemeList[6].color,
   );
-  userSetting.globalSetting = nextGlobalSetting;
-  objectbox.userSettingBox.put(userSetting);
+  await database.userSettings.put(userSetting);
 
   logger.d(
     '[migration_v3_to_v4] updated global setting: dynamicColor=false, '

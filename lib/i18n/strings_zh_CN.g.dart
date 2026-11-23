@@ -491,6 +491,18 @@ class Translations$settings$zh_CN {
 	/// zh-CN: '关闭后隐藏更多页搜索书签入口与搜索结果页添加按钮'
 	String get showSearchBookmarkSubtitle => '关闭后隐藏更多页搜索书签入口与搜索结果页添加按钮';
 
+	/// zh-CN: '显示滚动条'
+	String get showScrollbar => '显示滚动条';
+
+	/// zh-CN: '桌面端默认开启，移动端默认关闭'
+	String get showScrollbarSubtitle => '桌面端默认开启，移动端默认关闭';
+
+	/// zh-CN: '滚动条常驻'
+	String get alwaysShowScrollbar => '滚动条常驻';
+
+	/// zh-CN: '开启后滚动条不会在停止滚动时自动隐藏'
+	String get alwaysShowScrollbarSubtitle => '开启后滚动条不会在停止滚动时自动隐藏';
+
 	/// zh-CN: '内容与网络'
 	String get contentAndNetwork => '内容与网络';
 
@@ -637,6 +649,30 @@ class Translations$settings$zh_CN {
 
 	/// zh-CN: '开启后在后台定期同步配置'
 	String get autoSyncSubtitle => '开启后在后台定期同步配置';
+
+	/// zh-CN: '同步间隔'
+	String get syncInterval => '同步间隔';
+
+	/// zh-CN: '自动同步的执行间隔，默认 5 分钟'
+	String get syncIntervalSubtitle => '自动同步的执行间隔，默认 5 分钟';
+
+	/// zh-CN: '间隔数值'
+	String get syncIntervalValue => '间隔数值';
+
+	/// zh-CN: '单位'
+	String get syncIntervalUnitLabel => '单位';
+
+	/// zh-CN: '秒'
+	String get syncIntervalUnitSecond => '秒';
+
+	/// zh-CN: '分钟'
+	String get syncIntervalUnitMinute => '分钟';
+
+	/// zh-CN: '小时'
+	String get syncIntervalUnitHour => '小时';
+
+	/// zh-CN: '请输入大于 0 的整数'
+	String get syncIntervalInvalid => '请输入大于 0 的整数';
 
 	/// zh-CN: '自动同步通知'
 	String get syncNotify => '自动同步通知';
@@ -799,6 +835,39 @@ class Translations$settings$zh_CN {
 
 	/// zh-CN: '开启后漫画详情页章节默认倒序显示'
 	String get reverseChaptersSubtitle => '开启后漫画详情页章节默认倒序显示';
+
+	/// zh-CN: '漫画详情页'
+	String get comicDetail => '漫画详情页';
+
+	/// zh-CN: '自定义功能按钮等详情页显示样式'
+	String get comicDetailSubtitle => '自定义功能按钮等详情页显示样式';
+
+	/// zh-CN: '功能按钮'
+	String get comicDetailActions => '功能按钮';
+
+	/// zh-CN: '点赞'
+	String get comicDetailShowLike => '点赞';
+
+	/// zh-CN: '在功能按钮区显示点赞按钮'
+	String get comicDetailShowLikeSubtitle => '在功能按钮区显示点赞按钮';
+
+	/// zh-CN: '评论'
+	String get comicDetailShowComment => '评论';
+
+	/// zh-CN: '在功能按钮区显示评论按钮'
+	String get comicDetailShowCommentSubtitle => '在功能按钮区显示评论按钮';
+
+	/// zh-CN: '本地收藏'
+	String get comicDetailShowLocalCollect => '本地收藏';
+
+	/// zh-CN: '在功能按钮区显示本地收藏按钮'
+	String get comicDetailShowLocalCollectSubtitle => '在功能按钮区显示本地收藏按钮';
+
+	/// zh-CN: '云收藏'
+	String get comicDetailShowCloudCollect => '云收藏';
+
+	/// zh-CN: '在功能按钮区显示云收藏按钮'
+	String get comicDetailShowCloudCollectSubtitle => '在功能按钮区显示云收藏按钮';
 
 	/// zh-CN: '存储'
 	String get storage => '存储';
@@ -1165,6 +1234,30 @@ class Translations$bookshelf$zh_CN {
 
 	/// zh-CN: '导入漫画'
 	String get importComic => '导入漫画';
+
+	/// zh-CN: '导入外部漫画'
+	String get importExternalComic => '导入外部漫画';
+
+	/// zh-CN: '开始导入外部漫画'
+	String get importExternalStarted => '开始导入外部漫画';
+
+	/// zh-CN: '选择文件夹'
+	String get importExternalFolder => '选择文件夹';
+
+	/// zh-CN: '扫描文件夹中的图片与压缩包'
+	String get importExternalFolderHint => '扫描文件夹中的图片与压缩包';
+
+	/// zh-CN: '选择压缩包'
+	String get importExternalArchive => '选择压缩包';
+
+	/// zh-CN: '支持 CBZ / CBR / CB7 / CBT'
+	String get importExternalArchiveHint => '支持 CBZ / CBR / CB7 / CBT';
+
+	/// zh-CN: '导入完成：$title（$chapters 章 / $images 张图）'
+	String importExternalCompleted({required Object title, required Object chapters, required Object images}) => '导入完成：${title}（${chapters} 章 / ${images} 张图）';
+
+	/// zh-CN: '未分类'
+	String get importUncategorized => '未分类';
 
 	/// zh-CN: '书架说明'
 	String get folderHint => '书架说明';
@@ -1543,6 +1636,30 @@ class Translations$comicEdit$zh_CN {
 
 	/// zh-CN: '章节已重命名'
 	String get chapterRenamed => '章节已重命名';
+
+	/// zh-CN: '导入章节'
+	String get importChapters => '导入章节';
+
+	/// zh-CN: '导入图片'
+	String get importImages => '导入图片';
+
+	/// zh-CN: '章节已导入'
+	String get chaptersImported => '章节已导入';
+
+	/// zh-CN: '已导入 $count 张图片'
+	String imagesImported({required Object count}) => '已导入 ${count} 张图片';
+
+	/// zh-CN: '编辑分卷'
+	String get editVolume => '编辑分卷';
+
+	/// zh-CN: '输入分卷名称，留空表示不分组'
+	String get volumeHint => '输入分卷名称，留空表示不分组';
+
+	/// zh-CN: '分卷：$name'
+	String volumeLabel({required Object name}) => '分卷：${name}';
+
+	/// zh-CN: '分卷已更新'
+	String get volumeUpdated => '分卷已更新';
 
 	/// zh-CN: '图片文件缺失'
 	String get imageMissing => '图片文件缺失';
@@ -2188,6 +2305,15 @@ class Translations$reader$zh_CN {
 
 	/// zh-CN: '开启后可用音量键上下翻页/滑动'
 	String get volumeKeyPageTurnSubtitle => '开启后可用音量键上下翻页/滑动';
+
+	/// zh-CN: '实验性功能'
+	String get experimentalFeatures => '实验性功能';
+
+	/// zh-CN: '条漫放大后连续滚动'
+	String get zoomedContinuousScroll => '条漫放大后连续滚动';
+
+	/// zh-CN: '仅条漫模式。放大后单指上下拖动可继续滚动；手势异常时请关闭'
+	String get zoomedContinuousScrollSubtitle => '仅条漫模式。放大后单指上下拖动可继续滚动；手势异常时请关闭';
 
 	/// zh-CN: '% 屏高'
 	String get screenHeightPercent => '% 屏高';
@@ -4462,6 +4588,10 @@ extension on Translations {
 			'settings.showPluginCloudFavoriteSubtitle' => '关闭后隐藏底部导航的云收藏页签',
 			'settings.showSearchBookmark' => '显示搜索书签',
 			'settings.showSearchBookmarkSubtitle' => '关闭后隐藏更多页搜索书签入口与搜索结果页添加按钮',
+			'settings.showScrollbar' => '显示滚动条',
+			'settings.showScrollbarSubtitle' => '桌面端默认开启，移动端默认关闭',
+			'settings.alwaysShowScrollbar' => '滚动条常驻',
+			'settings.alwaysShowScrollbarSubtitle' => '开启后滚动条不会在停止滚动时自动隐藏',
 			'settings.contentAndNetwork' => '内容与网络',
 			'settings.content' => '内容',
 			'settings.network' => '网络',
@@ -4511,6 +4641,14 @@ extension on Translations {
 			'settings.syncServiceS3' => 'S3',
 			'settings.autoSync' => '自动同步',
 			'settings.autoSyncSubtitle' => '开启后在后台定期同步配置',
+			'settings.syncInterval' => '同步间隔',
+			'settings.syncIntervalSubtitle' => '自动同步的执行间隔，默认 5 分钟',
+			'settings.syncIntervalValue' => '间隔数值',
+			'settings.syncIntervalUnitLabel' => '单位',
+			'settings.syncIntervalUnitSecond' => '秒',
+			'settings.syncIntervalUnitMinute' => '分钟',
+			'settings.syncIntervalUnitHour' => '小时',
+			'settings.syncIntervalInvalid' => '请输入大于 0 的整数',
 			'settings.syncNotify' => '自动同步通知',
 			'settings.syncNotifySubtitle' => '开启后在同步开始与完成时提醒',
 			'settings.syncSettings' => '同步设置',
@@ -4565,6 +4703,17 @@ extension on Translations {
 			'settings.detailLayoutSubtitle' => '开启后漫画列表显示为横排详情样式，含作者与分类信息',
 			'settings.reverseChapters' => '章节倒序',
 			'settings.reverseChaptersSubtitle' => '开启后漫画详情页章节默认倒序显示',
+			'settings.comicDetail' => '漫画详情页',
+			'settings.comicDetailSubtitle' => '自定义功能按钮等详情页显示样式',
+			'settings.comicDetailActions' => '功能按钮',
+			'settings.comicDetailShowLike' => '点赞',
+			'settings.comicDetailShowLikeSubtitle' => '在功能按钮区显示点赞按钮',
+			'settings.comicDetailShowComment' => '评论',
+			'settings.comicDetailShowCommentSubtitle' => '在功能按钮区显示评论按钮',
+			'settings.comicDetailShowLocalCollect' => '本地收藏',
+			'settings.comicDetailShowLocalCollectSubtitle' => '在功能按钮区显示本地收藏按钮',
+			'settings.comicDetailShowCloudCollect' => '云收藏',
+			'settings.comicDetailShowCloudCollectSubtitle' => '在功能按钮区显示云收藏按钮',
 			'settings.storage' => '存储',
 			'settings.cache' => '缓存',
 			'settings.clearCache' => '清理缓存',
@@ -4684,6 +4833,14 @@ extension on Translations {
 			'bookshelf.newFolder' => '新建文件夹',
 			'bookshelf.manage' => '管理',
 			'bookshelf.importComic' => '导入漫画',
+			'bookshelf.importExternalComic' => '导入外部漫画',
+			'bookshelf.importExternalStarted' => '开始导入外部漫画',
+			'bookshelf.importExternalFolder' => '选择文件夹',
+			'bookshelf.importExternalFolderHint' => '扫描文件夹中的图片与压缩包',
+			'bookshelf.importExternalArchive' => '选择压缩包',
+			'bookshelf.importExternalArchiveHint' => '支持 CBZ / CBR / CB7 / CBT',
+			'bookshelf.importExternalCompleted' => ({required Object title, required Object chapters, required Object images}) => '导入完成：${title}（${chapters} 章 / ${images} 张图）',
+			'bookshelf.importUncategorized' => '未分类',
 			'bookshelf.folderHint' => '书架说明',
 			'bookshelf.removeFromFolder' => '移出文件夹',
 			'bookshelf.deleteFavorite' => '删除收藏',
@@ -4807,6 +4964,14 @@ extension on Translations {
 			'comicEdit.coverUpdated' => '封面已更新',
 			'comicEdit.chapterAdded' => '章节已新增',
 			'comicEdit.chapterRenamed' => '章节已重命名',
+			'comicEdit.importChapters' => '导入章节',
+			'comicEdit.importImages' => '导入图片',
+			'comicEdit.chaptersImported' => '章节已导入',
+			'comicEdit.imagesImported' => ({required Object count}) => '已导入 ${count} 张图片',
+			'comicEdit.editVolume' => '编辑分卷',
+			'comicEdit.volumeHint' => '输入分卷名称，留空表示不分组',
+			'comicEdit.volumeLabel' => ({required Object name}) => '分卷：${name}',
+			'comicEdit.volumeUpdated' => '分卷已更新',
 			'comicEdit.imageMissing' => '图片文件缺失',
 			'comicEdit.busy' => '处理中...',
 			'comicEdit.notFound' => '下载记录不存在',
@@ -4821,6 +4986,8 @@ extension on Translations {
 			'comicInfo.removingCloudCollection' => '取消云收藏中...',
 			'comicInfo.cloudCollectSuccess' => '云收藏成功',
 			'comicInfo.cloudUncollectSuccess' => '已取消云收藏',
+			_ => null,
+		} ?? switch (path) {
 			'comicInfo.cloudCollectIncomplete' => '云收藏操作未完成',
 			'comicInfo.discontinued' => '此漫画已下架',
 			'comicInfo.likes' => ({required Object count}) => '点赞 ${count}',
@@ -4860,8 +5027,6 @@ extension on Translations {
 			'comicInfo.tags' => '标签',
 			'comicInfo.works' => '作品',
 			'comicInfo.views' => ({required Object count}) => '浏览：${count}',
-			_ => null,
-		} ?? switch (path) {
 			'comicInfo.updateTime' => ({required Object time}) => '更新时间：${time}',
 			'comicInfo.startRead' => '开始阅读',
 			'comicInfo.continueRead' => '继续阅读',
@@ -5018,6 +5183,9 @@ extension on Translations {
 			'reader.volumeKeyPageTurn' => '音量键翻页',
 			'reader.enableVolumeKeyPageTurn' => '启用音量键翻页',
 			'reader.volumeKeyPageTurnSubtitle' => '开启后可用音量键上下翻页/滑动',
+			'reader.experimentalFeatures' => '实验性功能',
+			'reader.zoomedContinuousScroll' => '条漫放大后连续滚动',
+			'reader.zoomedContinuousScrollSubtitle' => '仅条漫模式。放大后单指上下拖动可继续滚动；手势异常时请关闭',
 			'reader.screenHeightPercent' => '% 屏高',
 			'reader.milliseconds' => 'ms',
 			'reader.percent' => '%',
@@ -5332,6 +5500,8 @@ extension on Translations {
 			'about.fetchFailed' => '获取失败',
 			'about.networkError' => '网络错误',
 			'about.projectAddress' => '项目地址',
+			_ => null,
+		} ?? switch (path) {
 			'about.projectAddressDesc' => '喜欢这个项目吗？点个star支持一下吧！',
 			'about.projectLink' => '前往 GitHub 仓库 (breeze-project-org/Breeze) ⭐',
 			'about.contact' => '联系方式',
@@ -5374,8 +5544,6 @@ extension on Translations {
 			'oldHome.recommend' => '推荐',
 			'oldHome.latest' => '最新',
 			'oldHome.cloudFavorite' => '云收藏',
-			_ => null,
-		} ?? switch (path) {
 			'oldHome.list' => '列表',
 			'oldHome.function' => '功能',
 			'oldHome.close' => '关闭',

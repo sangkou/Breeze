@@ -9,8 +9,9 @@ import 'package:zephyr/page/search/widget/history.dart';
 import 'package:zephyr/page/search/widget/search_input_dialog.dart';
 import 'package:zephyr/page/search/widget/source_select_dialog.dart';
 import 'package:zephyr/plugin/plugin_registry_service.dart';
+import 'package:zephyr/plugin/local_comic_plugin.dart';
 import 'package:zephyr/i18n/strings.g.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/async/debouncer.dart';
 import 'package:zephyr/widgets/multi_choice_list_dialog.dart';
 import 'package:zephyr/widgets/toast.dart';
 
@@ -32,7 +33,9 @@ class _SearchBarState extends State<SearchBar> {
   List<({String pluginId, String title})> _sourceOptions(BuildContext context) {
     final registry = context.read<PluginRegistryCubit>().state;
     final states = PluginRegistryService.I.sortPlugins(
-      registry.plugins.values.where((state) => !state.isDeleted),
+      registry.plugins.values.where(
+        (state) => !state.isDeleted && !isLocalComicPluginId(state.uuid),
+      ),
     );
     return states
         .map(
@@ -187,10 +190,10 @@ class _SearchBarState extends State<SearchBar> {
         extern: extern,
       );
       final scheme = Map<String, dynamic>.from(
-        (response['scheme'] as Map?) ?? const <String, dynamic>{},
+        (response.data['scheme'] as Map?) ?? const <String, dynamic>{},
       );
       final data = Map<String, dynamic>.from(
-        (response['data'] as Map?) ?? const <String, dynamic>{},
+        (response.data['data'] as Map?) ?? const <String, dynamic>{},
       );
       final fields = ((scheme['fields'] as List?) ?? const [])
           .whereType<Map>()
@@ -206,7 +209,7 @@ class _SearchBarState extends State<SearchBar> {
       );
       _mergeExternValues(fields, extern, values);
       return _AdvancedSearchScheme(
-        source: response['source']?.toString() ?? source,
+        source: response.source.isNotEmpty ? response.source : source,
         fields: fields,
         values: values,
       );

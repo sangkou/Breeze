@@ -19,10 +19,7 @@ Future<void> handleComicInfoAction(
   }
 
   if (type == 'openSearch') {
-    final pluginId = _sourceIdFromString(
-      payload['source']?.toString(),
-      fallbackPluginId,
-    );
+    final pluginId = fallbackPluginId.trim();
     final keyword = payload['keyword']?.toString() ?? '';
     final externPatch = asJsonMap(payload['extern']);
 
@@ -53,16 +50,8 @@ Future<void> handleComicInfoAction(
   }
 
   if (type == 'openComicList') {
-    final sceneMap = Map<String, dynamic>.from(asJsonMap(payload['scene']));
-    if ((sceneMap['source']?.toString().trim() ?? '').isEmpty) {
-      sceneMap['source'] = fallbackPluginId;
-    }
-    final scene = ComicListScene.fromMap(sceneMap);
+    final sceneMap = asJsonMap(payload['scene']);
+    final scene = ComicListScene.fromMap(sceneMap, source: fallbackPluginId);
     context.pushRoute(ComicListRoute(scene: scene, title: scene.title));
   }
-}
-
-String _sourceIdFromString(String? source, String fallbackPluginId) {
-  final resolved = (source ?? '').trim();
-  return resolved.isEmpty ? fallbackPluginId : resolved;
 }

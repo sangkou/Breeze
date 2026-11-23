@@ -9,21 +9,21 @@ import 'package:zephyr/page/bookshelf/cubit/bookshelf_search_cubit.dart';
 import 'package:zephyr/page/bookshelf/models/shelf_page_mode.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
 import 'package:zephyr/page/bookshelf/widgets/folder_shelf_page.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/cover.dart';
 
 import '../test_helper.dart';
 
-/// 书架刷新必须能读到主 isolate 刚写入的封面；查询走 `store.runAsync`。
+/// 书架刷新必须能读到刚写入的封面；查询走异步 SQLite。
 void main() {
   setUpAll(() async {
     await initRustLib(silent: true);
-    await TestObjectBoxHelper.setUpTestObjectBox();
+    await TestDatabaseHelper.setUpTestDatabase();
   });
   tearDownAll(() async {
-    await TestObjectBoxHelper.tearDownTestObjectBox();
+    await TestDatabaseHelper.tearDownTestDatabase();
   });
-  tearDown(TestObjectBoxHelper.cleanComicFolderBoxes);
+  tearDown(TestDatabaseHelper.cleanComicFolderBoxes);
 
   Future<void> waitForCoverPath(WidgetTester tester, String path) async {
     for (var i = 0; i < 150; i++) {
@@ -70,8 +70,14 @@ void main() {
     final record = createTestDownload(uniqueKey)
       ..cover =
           '{"id":"c1","url":"","path":"old.jpg","extern":{"path":"old.jpg"}}';
-    objectbox.unifiedDownloadBox.put(record);
-    ComicLinkService.addComic(uniqueKey, null, ComicFolderType.download);
+    await tester.runAsync(() async {
+      await database.downloads.put(record);
+      await ComicLinkService.addComic(
+        uniqueKey,
+        null,
+        ComicFolderType.download,
+      );
+    });
 
     await pumpShelf(tester, refreshSignal: 0);
     await waitForCoverPath(tester, 'old.jpg');
@@ -80,7 +86,7 @@ void main() {
       ..cover =
           '{"id":"c2","url":"","path":"new.jpg","extern":{"path":"new.jpg"}}'
       ..updatedAt = DateTime.now().toUtc();
-    objectbox.unifiedDownloadBox.put(record);
+    await tester.runAsync(() => database.downloads.put(record));
 
     // 内容不足一屏也要能触发 RefreshIndicator；用慢拖而不是 fling，
     // 避免被当成惯性滚动。
@@ -101,8 +107,14 @@ void main() {
     final record = createTestDownload(uniqueKey)
       ..cover =
           '{"id":"c1","url":"","path":"old.jpg","extern":{"path":"old.jpg"}}';
-    objectbox.unifiedDownloadBox.put(record);
-    ComicLinkService.addComic(uniqueKey, null, ComicFolderType.download);
+    await tester.runAsync(() async {
+      await database.downloads.put(record);
+      await ComicLinkService.addComic(
+        uniqueKey,
+        null,
+        ComicFolderType.download,
+      );
+    });
 
     await pumpShelf(tester, refreshSignal: 0);
     await waitForCoverPath(tester, 'old.jpg');
@@ -112,7 +124,7 @@ void main() {
       ..cover =
           '{"id":"c2","url":"","path":"new.jpg","extern":{"path":"new.jpg"}}'
       ..updatedAt = DateTime.now().toUtc();
-    objectbox.unifiedDownloadBox.put(record);
+    await tester.runAsync(() => database.downloads.put(record));
 
     // 模拟书架刷新按钮：refreshSignal 变化。
     await pumpShelf(tester, refreshSignal: 1);

@@ -38,7 +38,7 @@ Plugin list: <https://github.com/breeze-project-org/Breeze-plugin-list>
 <summary>Currently included plugins (click to expand)</summary>
 
 <!-- PLUGIN-LIST-START -->
-包子漫画 Plus e-hentai 禁漫天堂 漫画柜 NoyAcg 如漫画 蛙漫3 包子漫画 哔咔漫画 拷贝漫画 hitomi JJ漫画 Komiic nhentai 绅士漫画 WEBTOON 再漫画 拷贝漫画 Copy4000 코사이트 MangaDex WeebCentral zero搬运网 禁漫天堂(mumushu0501-boop) Toomics
+包子漫画 Plus e-hentai 禁漫天堂 漫画柜 NoyAcg 如漫画 蛙漫3 包子漫画 哔咔漫画 拷贝漫画 hitomi JJ漫画 Komiic nhentai 绅士漫画 WEBTOON 再漫画 拷贝漫画 Copy4000 코사이트 MangaDex WeebCentral zero搬运网 禁漫天堂(mumushu0501-boop) Toomics WebDAV 漫画
 <!-- PLUGIN-LIST-END -->
 
 </details>
@@ -85,6 +85,28 @@ Depending on what you build, configure the following environment variables:
 - Go to the [Releases page](https://github.com/breeze-project-org/Breeze/releases) and download `app-arm64-v8a-release.apk`.
 
   > **Note**: In mainland China, apps that have not gone through app-store review may fail to install. You can bypass the system installer with [GBox](https://gboxlab.com/i18n/zh-Hant/), [Chujingyi](https://www.chujingapp.com/), or [GSpace](https://gspaceteam.com/) (HarmonyOS users can download it from the app store).
+
+> **HarmonyOS 4.x and earlier** can still install the APK; **HarmonyOS NEXT / 5.0 and later** no longer accept APK. Use the HAP below instead.
+
+### 📱 HarmonyOS NEXT / 5.0+
+
+HarmonyOS NEXT only accepts `.hap`, and sideloaded apps must be signed. Releases ship an **unsigned arm64 HAP**, so you need to sign it with your own certificate and profile.
+
+**Requirements:** HarmonyOS `5.0.5(17)` or later, `arm64-v8a` device.
+
+1. Download `Breeze-<version>-ohos-arm64-release-unsigned.hap` from the [Releases page](https://github.com/breeze-project-org/Breeze/releases).
+2. Sign it with DevEco Studio (automatic signing) or `hap-sign-tool.jar`, using a certificate and profile issued for bundle `com.zephyr.breeze.ohos`. The step-by-step walkthrough with commands is in the [Chinese README](README.md) and [docs/ohos_build.md](docs/ohos_build.md).
+3. Install with `hdc install -r <signed>.hap`, then launch with `hdc shell aa start -a EntryAbility -b com.zephyr.breeze.ohos`.
+
+> **Relationship to the Android build**
+>
+> The HarmonyOS build uses the bundle name `com.zephyr.breeze.ohos`, while the Android build uses `com.zephyr.breeze`; the two can be installed side by side. If you have been using the Android build through an Android compatibility layer such as Zhuoyitong (卓易通), Chujingyi, or GBox, migrate in this order:
+>
+> 1. Open the Android build, go to **Settings → Storage → Data Import/Export**, enable **Include downloaded comics** if needed, tap **Export data**, and confirm the archive is saved to a location you can reach.
+> 2. Sign and install the HarmonyOS HAP as described above, then open **Settings → Storage → Data Import/Export** and tap **Import data**.
+> 3. Once the bookshelf, reading history, and downloads look complete in the HarmonyOS build, uninstall the Android build from the compatibility layer so two identical icons do not get mixed up.
+>
+> The two installations keep separate databases and storage directories and share no data, so always export before switching. Test HAPs built before the bundle rename used `com.zephyr.breeze`; uninstall such a build with `hdc uninstall com.zephyr.breeze` before installing the current HAP, otherwise the install fails with `error: install already exist`.
 
 ### 🪟 Windows
 

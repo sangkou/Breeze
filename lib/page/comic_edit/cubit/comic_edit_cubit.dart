@@ -88,12 +88,12 @@ class ComicEditCubit extends Cubit<ComicEditState> {
   Future<void> load() async {
     emit(state.copyWith(loading: true, error: ''));
     try {
-      final record = _service.findRecord(from, comicId);
+      final record = await _service.findRecord(from, comicId);
       if (record == null) {
         emit(state.copyWith(loading: false, error: t.comicEdit.notFound));
         return;
       }
-      if (_service.hasIncompleteDownload(from, comicId)) {
+      if (await _service.hasIncompleteDownload(from, comicId)) {
         emit(state.copyWith(loading: false, locked: true, record: record));
         return;
       }
@@ -173,6 +173,51 @@ class ComicEditCubit extends Cubit<ComicEditState> {
       selectChapter: (document) => document.chapterMaps.isEmpty
           ? ''
           : comicEditChapterId(document.chapterMaps.last),
+    );
+  }
+
+  Future<void> setChapterVolume(String chapterId, String groupTitle) async {
+    await _run(
+      () => _service.setChapterVolume(
+        from: from,
+        comicId: comicId,
+        chapterId: chapterId,
+        groupTitle: groupTitle,
+      ),
+      successMessage: t.comicEdit.volumeUpdated,
+    );
+  }
+
+  Future<void> importImagesToChapter(String chapterId, List<File> files) async {
+    if (files.isEmpty || chapterId.isEmpty) return;
+    await _run(
+      () => _service.importImagesToChapter(
+        from: from,
+        comicId: comicId,
+        chapterId: chapterId,
+        files: files,
+      ),
+      successMessage: t.comicEdit.imagesImported(count: files.length),
+      selectChapter: (_) => chapterId,
+    );
+  }
+
+  Future<void> importChaptersFromPath({
+    required String sourcePath,
+    required bool isDirectory,
+    String? cleanupRoot,
+    String uncategorizedName = '未分类',
+  }) async {
+    await _run(
+      () => _service.importChaptersFromPath(
+        from: from,
+        comicId: comicId,
+        sourcePath: sourcePath,
+        isDirectory: isDirectory,
+        cleanupRoot: cleanupRoot,
+        uncategorizedName: uncategorizedName,
+      ),
+      successMessage: t.comicEdit.chaptersImported,
     );
   }
 
@@ -296,7 +341,7 @@ class ComicEditCubit extends Cubit<ComicEditState> {
     emit(state.copyWith(busy: true, error: ''));
     try {
       final document = await action();
-      final record = _service.findRecord(from, comicId);
+      final record = await _service.findRecord(from, comicId);
       final selectedChapterId =
           selectChapter?.call(document) ??
           _resolveSelectedChapter(document, state.selectedChapterId);

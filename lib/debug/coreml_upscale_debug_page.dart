@@ -7,8 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
-import 'package:zephyr/util/coreml_model_config.dart';
-import 'package:zephyr/util/coreml_model_loader.dart';
+import 'package:zephyr/util/coreml/coreml_model_config.dart';
+import 'package:zephyr/util/coreml/coreml_model_loader.dart';
 import 'package:zephyr/widgets/fluent_dropdown.dart';
 
 @RoutePage()

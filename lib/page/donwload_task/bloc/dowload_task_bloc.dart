@@ -5,7 +5,6 @@ import 'package:bloc/bloc.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/service/download/download_queue_manager.dart';
 import 'package:zephyr/service/download/download_task_repository.dart';
 
@@ -22,47 +21,32 @@ class DowloadTaskBloc extends Bloc<DowloadTaskEvent, DowloadTaskState> {
 
   void _onEvent(DowloadTaskEvent event, Emitter<DowloadTaskState> emit) {
     event.when(
-      started: () => _watchTasks(emit),
+      started: () => _watchTasks(),
       tasksUpdated: (tasks) => _handleTasksUpdated(tasks, emit),
-      taskDeleted: (taskId) => _deleteTask(taskId, emit),
+      taskDeleted: (taskId) => unawaited(_deleteTask(taskId)),
       cancelCurrentTask: () => _cancelCurrentTask(emit),
-      clearCompleted: () => _clearCompletedTasks(emit),
+      clearCompleted: () => unawaited(_clearCompletedTasks()),
     );
   }
 
-  void _watchTasks(Emitter<DowloadTaskState> emit) {
-    final watchedQuery = objectbox.downloadTaskBox
-        .query(DownloadTask_.isCompleted.equals(false))
-        .order(DownloadTask_.id)
-        .watch();
-
-    _watchSubscription = watchedQuery.listen((query) {
-      final tasks = query.find();
+  void _watchTasks() {
+    _watchSubscription = database.downloadTasks.watchIncomplete().listen((
+      tasks,
+    ) {
+      if (isClosed) return;
       add(DowloadTaskEvent.tasksUpdated(tasks));
     });
-
-    _refreshTasks(emit);
-  }
-
-  void _refreshTasks(Emitter<DowloadTaskState> emit) {
-    final tasks = objectbox.downloadTaskBox
-        .query(DownloadTask_.isCompleted.equals(false))
-        .order(DownloadTask_.id)
-        .build()
-        .find();
-
-    emit(DowloadTaskState.loaded(tasks: tasks, pendingCount: tasks.length));
   }
 
   void _handleTasksUpdated(
     List<DownloadTask> tasks,
     Emitter<DowloadTaskState> emit,
   ) {
-    _refreshTasks(emit);
+    emit(DowloadTaskState.loaded(tasks: tasks, pendingCount: tasks.length));
   }
 
-  void _deleteTask(int taskId, Emitter<DowloadTaskState> emit) {
-    final task = objectbox.downloadTaskBox.get(taskId);
+  Future<void> _deleteTask(int taskId) async {
+    final task = await database.downloadTasks.getById(taskId);
     if (task == null) return;
     String? taskKey;
     try {
@@ -72,25 +56,22 @@ class DowloadTaskBloc extends Bloc<DowloadTaskEvent, DowloadTaskState> {
       taskKey = null;
     }
     // 先排空在途后台写再删，防止旧写复活已删除的任务。
-    final removal = taskKey == null
-        ? Future.value()
-        : const DownloadTaskRepository().flushTaskWrites(taskKey);
-    unawaited(removal.then((_) => objectbox.downloadTaskBox.remove(taskId)));
+    if (taskKey != null) {
+      await const DownloadTaskRepository().flushTaskWrites(taskKey);
+    }
+    await database.downloadTasks.removeById(taskId);
   }
 
   void _cancelCurrentTask(Emitter<DowloadTaskState> emit) {
     DownloadQueueManager.instance.cancelCurrentTask();
   }
 
-  void _clearCompletedTasks(Emitter<DowloadTaskState> emit) {
-    final completedTasks = objectbox.downloadTaskBox
-        .query(DownloadTask_.isCompleted.equals(true))
-        .build()
-        .find();
-
-    for (final task in completedTasks) {
-      objectbox.downloadTaskBox.remove(task.id);
-    }
+  Future<void> _clearCompletedTasks() async {
+    final completedTasks = await database.downloadTasks.listCompleted();
+    if (completedTasks.isEmpty) return;
+    await database.downloadTasks.removeByIds(
+      completedTasks.map((task) => task.id).toList(),
+    );
   }
 
   @override

@@ -97,13 +97,16 @@ class UnifiedPluginChapterResponse {
   final Map<String, dynamic> scheme;
   final UnifiedPluginChapter chapter;
 
-  factory UnifiedPluginChapterResponse.fromMap(Map<String, dynamic> map) {
+  factory UnifiedPluginChapterResponse.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = asJsonMap(map['data']);
     final chapterMap = data.isNotEmpty
         ? asJsonMap(data['chapter'])
         : asJsonMap(map['chapter']);
     return UnifiedPluginChapterResponse(
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       comicId: map['comicId']?.toString() ?? '',
       chapterId: map['chapterId']?.toString() ?? '',
       extern: asJsonMap(map['extern']),

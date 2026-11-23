@@ -1,50 +1,46 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/sync/sync_device_id.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/object_box.dart';
 
-/// 测试辅助类：在独立的临时目录创建 ObjectBox，并设置全局 [objectbox]。
-///
-/// 每个调用方在 `setUpAll` 中调用 [setUpTestObjectBox]，
-/// 在 `tearDownAll` 中调用 [tearDownTestObjectBox]，
-/// 在 `tearDown` 中调用 [cleanComicFolderBoxes] 清理数据。
-class TestObjectBoxHelper {
+/// 测试辅助类：在独立临时目录创建 SQLite 数据库并设置全局 [database]。
+class TestDatabaseHelper {
   static Directory? _tempDir;
-  static ObjectBox? _objectBox;
+  static Database? _database;
 
-  /// 测试临时目录：供需要把 worker isolate 指向同一份库的测试使用。
   static String get tempPath => _tempDir!.path;
-  static Future<void> setUpTestObjectBox() async {
+
+  static Future<void> setUpTestDatabase() async {
     _tempDir = await Directory.systemTemp.createTemp('breeze_test_');
-    ObjectBox.resetForTests();
-    _objectBox = await ObjectBox.create(dbRootPath: _tempDir!.path);
-    objectbox = _objectBox!;
-    // 生产 main.dart 同款：首条 UserSetting 自增 id=1，供 globalSetting
-    // getter（userSettingBox.get(1)!）使用；UI 层 convertChineseForDisplay
-    // 等都依赖它，缺了渲染文件夹行时直接 Null check 崩。
-    objectbox.userSettingBox.put(UserSetting());
+    _database = await Database.open(
+      path: p.join(_tempDir!.path, 'breeze.sqlite3'),
+      legacyObjectBoxDir: p.join(_tempDir!.path, 'missing_objectbox'),
+    );
+    database = _database!;
+    await database.userSettings.put(UserSetting());
     syncDeviceId = 'test_device';
   }
 
-  static Future<void> tearDownTestObjectBox() async {
-    _objectBox?.close();
-    _objectBox = null;
+  static Future<void> tearDownTestDatabase() async {
+    await _database?.close();
+    _database = null;
     if (_tempDir != null && await _tempDir!.exists()) {
       await _tempDir!.delete(recursive: true);
     }
     _tempDir = null;
   }
 
-  static void cleanComicFolderBoxes() {
-    objectbox.comicFolderBox.removeAll();
-    objectbox.comicLinkBox.removeAll();
-    objectbox.unifiedFavoriteBox.removeAll();
-    objectbox.unifiedHistoryBox.removeAll();
-    objectbox.unifiedDownloadBox.removeAll();
-    objectbox.comicReadChapterBox.removeAll();
+  static Future<void> cleanComicFolderBoxes() async {
+    await database.folders.removeAll();
+    await database.links.removeAll();
+    await database.favorites.removeAll();
+    await database.histories.removeAll();
+    await database.downloads.removeAll();
+    await database.readChapters.removeAll();
   }
 }
 
@@ -52,12 +48,13 @@ class TestObjectBoxHelper {
 UnifiedComicFavorite createTestFavorite(
   String uniqueKey, {
   bool deleted = false,
+  String source = 'test',
   DateTime? updatedAt,
 }) {
   final now = updatedAt ?? DateTime.now().toUtc();
   return UnifiedComicFavorite(
     uniqueKey: uniqueKey,
-    source: 'test',
+    source: source,
     comicId: uniqueKey,
     title: 'Test Comic $uniqueKey',
     description: '',

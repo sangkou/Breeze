@@ -3,12 +3,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/cubit/string_select.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/comic_info/method/get_plugin_detail.dart';
 import 'package:zephyr/page/download/adapters/download_chapter_adapter.dart';
 import 'package:zephyr/page/download/adapters/download_chapter_matcher.dart';
 import 'package:zephyr/page/download/models/download_chapter.dart';
-import 'package:zephyr/page/download/models/unified_comic_download.dart';
 import 'package:zephyr/service/download/download_task_repository.dart';
 import 'package:zephyr/page/comic_read/type/chapter_extern.dart';
 import 'package:zephyr/type/enum.dart';
@@ -18,15 +16,15 @@ import 'package:zephyr/page/comic_info/models/read_launch_adapter.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/widgets/toast.dart';
 
-void goToComicRead(
+Future<void> goToComicRead(
   BuildContext context,
   String comicId,
   ComicEntryType type,
   dynamic allInfo,
   String from,
-) {
+) async {
   try {
-    _goToComicRead(context, comicId, type, allInfo, from);
+    await _goToComicRead(context, comicId, type, allInfo, from);
   } catch (e) {
     // 插件详情数据异常时不要让点击无反应，也不要冒到 FlutterError。
     logger.e(e);
@@ -34,21 +32,34 @@ void goToComicRead(
   }
 }
 
-void _goToComicRead(
+Future<void> _goToComicRead(
   BuildContext context,
   String comicId,
   ComicEntryType type,
   dynamic allInfo,
   String from,
-) {
+) async {
   final isDownload =
       type == ComicEntryType.download ||
       type == ComicEntryType.historyAndDownload;
-  final historyForChapter = objectbox.unifiedHistoryBox
-      .query(UnifiedComicHistory_.uniqueKey.equals('$from:$comicId'))
-      .build()
-      .findFirst();
-  final chapter = _resolveChapter(allInfo, from, historyForChapter);
+  final historyForChapter = await database.histories.getByKey('$from:$comicId');
+  const repository = DownloadTaskRepository();
+  DownloadChapter? chapter;
+  int? downloadChapterCount;
+  if (isDownload && allInfo is UnifiedComicDownload) {
+    // 下载入口：章节解析全部在 worker isolate，命中逻辑与 _resolveChapter 一致。
+    final lookup = await repository.lookupDownloadedChapter(
+      from: from,
+      comicId: comicId,
+      chapterKeys: <String>[historyForChapter?.chapterId ?? ''],
+      order: historyForChapter?.chapterOrder ?? 0,
+      fallbackFirst: true,
+    );
+    chapter = lookup.chapter;
+    downloadChapterCount = lookup.chapterCount;
+  } else {
+    chapter = _resolveChapter(allInfo, from, historyForChapter);
+  }
 
   // 在线入口统一查库：目标章节已下载则直接读本地，不再看来源 type。
   dynamic readInfo = allInfo;
@@ -57,36 +68,32 @@ void _goToComicRead(
   DownloadChapter? readChapter = chapter;
   var readEpsCount = 0;
   if (!isDownload && chapter != null) {
-    const repository = DownloadTaskRepository();
-    final local =
-        repository.findDownloadedChapter(
-          from: from,
-          comicId: comicId,
-          chapterKey: chapter.id,
-        ) ??
-        repository.findDownloadedChapter(
-          from: from,
-          comicId: comicId,
-          chapterKey: chapter.effectiveRequestId,
-        );
-    final record = local == null
-        ? null
-        : repository.findDownloadRecord(from, comicId);
+    final lookup = await repository.lookupDownloadedChapter(
+      from: from,
+      comicId: comicId,
+      chapterKeys: <String>[chapter.id, chapter.effectiveRequestId],
+      includeRecord: true,
+    );
+    final local = lookup.chapter;
+    final record = lookup.record;
     if (local != null && record != null) {
       readInfo = record;
       readIsDownload = true;
       readComicId = record.comicId;
       readChapter = local;
-      readEpsCount = resolveStoredDownloadChapters(record).length;
+      readEpsCount = lookup.chapterCount;
     }
   }
   if (!readIsDownload) {
     readEpsCount = resolveReadEpsCount(allInfo, from, isDownload: false);
     readComicId = resolveReadComicId(allInfo, from, isDownload: false);
   } else if (readInfo == allInfo) {
-    readEpsCount = resolveReadEpsCount(allInfo, from, isDownload: true);
+    readEpsCount =
+        downloadChapterCount ??
+        resolveReadEpsCount(allInfo, from, isDownload: true);
     readComicId = resolveReadComicId(allInfo, from, isDownload: true);
   }
+  if (!context.mounted) return;
   final hasHistory = context.read<StringSelectCubit>().state.isNotEmpty;
 
   final typeVal = hasHistory

@@ -8,42 +8,50 @@ import 'package:zephyr/service/reader/reader_history_service.dart';
 
 import 'test_helper.dart';
 
-void main() {
-  setUpAll(TestObjectBoxHelper.setUpTestObjectBox);
-  tearDownAll(TestObjectBoxHelper.tearDownTestObjectBox);
-  tearDown(TestObjectBoxHelper.cleanComicFolderBoxes);
+Future<void> _seedReadChapters() async {
+  final repo = ComicReadChapterRepository.instance;
+  await repo.markRead(
+    source: 'src',
+    comicId: 'c1',
+    chapterId: 'ch1',
+    chapterTitle: '第 1 话',
+    chapterOrder: 1,
+  );
+  await repo.markRead(
+    source: 'src',
+    comicId: 'c1',
+    chapterId: 'ch2',
+    chapterTitle: '第 2 话',
+    chapterOrder: 2,
+  );
+  await repo.markRead(
+    source: 'src',
+    comicId: 'c2',
+    chapterId: 'ch1',
+    chapterTitle: '另一本第 1 话',
+    chapterOrder: 1,
+  );
+}
 
-  test('按漫画隔离查询，重复标记同一章不新增记录', () {
+void main() {
+  setUpAll(TestDatabaseHelper.setUpTestDatabase);
+  tearDownAll(TestDatabaseHelper.tearDownTestDatabase);
+  tearDown(TestDatabaseHelper.cleanComicFolderBoxes);
+
+  test('按漫画隔离查询，重复标记同一章不新增记录', () async {
     final repo = ComicReadChapterRepository.instance;
 
-    repo.markRead(
-      source: 'src',
-      comicId: 'c1',
-      chapterId: 'ch1',
-      chapterTitle: '第 1 话',
-      chapterOrder: 1,
-    );
-    repo.markRead(
-      source: 'src',
-      comicId: 'c1',
-      chapterId: 'ch2',
-      chapterTitle: '第 2 话',
-      chapterOrder: 2,
-    );
-    repo.markRead(
-      source: 'src',
-      comicId: 'c2',
-      chapterId: 'ch1',
-      chapterTitle: '另一本第 1 话',
-      chapterOrder: 1,
-    );
+    await _seedReadChapters();
 
-    expect(repo.readChapterIds(source: 'src', comicId: 'c1'), {'ch1', 'ch2'});
-    expect(repo.readChapterIds(source: 'src', comicId: 'c2'), {'ch1'});
-    expect(repo.readChapterIds(source: 'other', comicId: 'c1'), isEmpty);
-    expect(objectbox.comicReadChapterBox.count(), 3);
+    expect(await repo.readChapterIds(source: 'src', comicId: 'c1'), {
+      'ch1',
+      'ch2',
+    });
+    expect(await repo.readChapterIds(source: 'src', comicId: 'c2'), {'ch1'});
+    expect(await repo.readChapterIds(source: 'other', comicId: 'c1'), isEmpty);
+    expect(await database.readChapters.count(), 3);
 
-    repo.markRead(
+    await repo.markRead(
       source: 'src',
       comicId: 'c1',
       chapterId: 'ch1',
@@ -51,14 +59,17 @@ void main() {
       chapterOrder: 1,
     );
 
-    expect(objectbox.comicReadChapterBox.count(), 3);
-    expect(repo.readChapterIds(source: 'src', comicId: 'c1'), {'ch1', 'ch2'});
+    expect(await database.readChapters.count(), 3);
+    expect(await repo.readChapterIds(source: 'src', comicId: 'c1'), {
+      'ch1',
+      'ch2',
+    });
   });
 
   test('写入后按漫画 key 通知详情页刷新', () async {
     final repo = ComicReadChapterRepository.instance;
     final change = repo.changes.first;
-    repo.markRead(
+    await repo.markRead(
       source: 'src',
       comicId: 'c3',
       chapterId: 'ch1',
@@ -97,16 +108,18 @@ void main() {
     service.markCurrentChapterRead();
     service.stop();
 
-    expect(
-      ComicReadChapterRepository.instance.readChapterIds(
+    Set<String> ids = const {};
+    for (var i = 0; i < 40 && ids.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      ids = await ComicReadChapterRepository.instance.readChapterIds(
         source: 'src',
         comicId: 'c9',
-      ),
-      {'ch9'},
-    );
+      );
+    }
+    expect(ids, {'ch9'});
   });
 
-  test('周期保存通过 runAsync 写入历史', () async {
+  test('周期保存直接写入历史', () async {
     final service = ReaderHistoryService.instance;
     await service.loadHistory(
       source: 'src',
@@ -137,11 +150,7 @@ void main() {
       UnifiedComicHistory? history;
       for (var i = 0; i < 40 && history == null; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
-        final matches = objectbox.unifiedHistoryBox
-            .getAll()
-            .where((item) => item.uniqueKey == 'src:c10')
-            .toList();
-        if (matches.isNotEmpty) history = matches.first;
+        history = await database.histories.getByKey('src:c10');
       }
       expect(history, isNotNull);
       expect(history?.pageIndex, 4);

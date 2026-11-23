@@ -10,9 +10,9 @@ import 'package:zephyr/type/enum.dart';
 import 'test_helper.dart';
 
 void main() {
-  setUpAll(TestObjectBoxHelper.setUpTestObjectBox);
-  tearDownAll(TestObjectBoxHelper.tearDownTestObjectBox);
-  tearDown(TestObjectBoxHelper.cleanComicFolderBoxes);
+  setUpAll(TestDatabaseHelper.setUpTestDatabase);
+  tearDownAll(TestDatabaseHelper.tearDownTestDatabase);
+  tearDown(TestDatabaseHelper.cleanComicFolderBoxes);
 
   Future<void> pumpRow(WidgetTester tester, {required bool isRead}) async {
     final controller = EpisodeDownloadController();

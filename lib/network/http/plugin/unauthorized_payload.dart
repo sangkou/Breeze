@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:zephyr/network/http/plugin/qjs_call_exception.dart';
+import 'package:zephyr/src/rust/api/qjs.dart';
 import 'package:zephyr/util/json/json_value.dart';
 
 // need-login 错误只携带插件身份与提示文案。
@@ -31,11 +33,18 @@ class PluginUnauthorizedException implements Exception {
 
 /// 插件调用抛出的原始错误文本。
 ///
-/// QJS/Rust 抛回的一定是 [AnyhowException]，取其 `message` 原文；
+/// `runQjsTask` 会把 Rust 错误包装成 [QjsCallException]（带 source）；
+/// 直接调用 Rust API 的路径仍可能是 [AnyhowException]，取其 `message` 原文；
 /// 其他 Dart 异常（如 FormatException）返回 null，调用方走普通失败。
 /// 登录解析（[parseUnauthorizedPayload]）永远走原文，
 /// 不受展示层精简开关影响。
 String? extractPluginErrorRawText(Object error) {
+  if (error is QjsCallException) {
+    return error.message;
+  }
+  if (error is QjsCallFailure) {
+    return error.message;
+  }
   if (error is! AnyhowException) {
     return null;
   }
@@ -65,9 +74,10 @@ UnauthorizedPayload? parseUnauthorizedPayload(
     if (parsed['type']?.toString() != 'unauthorized') {
       return null;
     }
-    final pluginId = parsed['source']?.toString().trim();
+    // 插件自报的 source 可能是短名（ehentai/bika...），也可能被伪造；
+    // 登录身份一律用调用方传入的实际插件 id，不读取插件返回值。
     return UnauthorizedPayload(
-      pluginId: pluginId?.isNotEmpty == true ? pluginId! : fallbackPluginId,
+      pluginId: fallbackPluginId.trim(),
       message: parsed['message']?.toString().trim().isNotEmpty == true
           ? parsed['message'].toString().trim()
           : '登录过期，请重新登录',

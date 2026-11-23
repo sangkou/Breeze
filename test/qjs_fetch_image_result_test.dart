@@ -14,8 +14,12 @@ void main() {
       'error': 'HTTP 404',
     });
 
-    final result = QjsFetchImageHttpResult.fromCbor(cbor.cbor.decode(encoded));
+    final result = QjsFetchImageHttpResult.fromCbor(
+      cbor.cbor.decode(encoded),
+      source: 'plugin-uuid',
+    );
 
+    expect(result.source, 'plugin-uuid');
     expect(result.bytes, [0, 1, 255]);
     expect(result.statusCode, 404);
     expect(result.responseBodyLength, 3);
@@ -32,7 +36,10 @@ void main() {
     });
 
     expect(
-      () => QjsFetchImageHttpResult.fromCbor(cbor.cbor.decode(encoded)),
+      () => QjsFetchImageHttpResult.fromCbor(
+        cbor.cbor.decode(encoded),
+        source: 'plugin-uuid',
+      ),
       throwsA(isA<FormatException>()),
     );
   });

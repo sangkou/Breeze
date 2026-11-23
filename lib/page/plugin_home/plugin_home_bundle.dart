@@ -35,11 +35,7 @@ class PluginHomeTab {
     ComicListScene? scene;
     final sceneMap = asJsonMap(map['scene']);
     if (sceneMap.isNotEmpty) {
-      final normalized = Map<String, dynamic>.from(sceneMap);
-      if ((normalized['source']?.toString() ?? '').trim().isEmpty) {
-        normalized['source'] = pluginId;
-      }
-      scene = ComicListScene.fromMap(normalized);
+      scene = ComicListScene.fromMap(sceneMap, source: pluginId);
     }
 
     final pageMap = asJsonMap(map['page']);

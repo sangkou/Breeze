@@ -5,7 +5,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/plugin/qjs_download_runtime.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/download/adapters/download_chapter_adapter.dart';
 import 'package:zephyr/service/download/comic_download_task.dart';
 import 'package:zephyr/service/download/download_asset_store.dart';
@@ -15,8 +14,8 @@ import 'package:zephyr/service/download/download_task_repository.dart';
 import 'package:zephyr/service/download/models/download_task_json.dart';
 import 'package:zephyr/service/lifecycle/foreground_task/foreground_task_service.dart';
 
-import 'package:zephyr/util/error_filter.dart';
-import 'package:zephyr/util/macos_activity.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/system/macos_activity.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/widgets/toast.dart';
 
@@ -70,17 +69,20 @@ class DownloadQueueManager {
   ///
   /// 如果当前没有运行中的任务，此方法无任何副作用。
   void cancelCurrentTask() {
-    final downloadingTasks = _taskRepository
-        .getAll(incompleteOnly: true)
-        .where((task) => task.isDownloading)
-        .toList();
+    unawaited(_cancelCurrentTaskFromQueue());
+  }
+
+  Future<void> _cancelCurrentTaskFromQueue() async {
+    final downloadingTasks = (await _taskRepository.getAll(
+      incompleteOnly: true,
+    )).where((task) => task.isDownloading).toList();
     final downloadingTask = downloadingTasks.isEmpty
         ? null
         : downloadingTasks.first;
 
     if (downloadingTask != null) {
       logger.i('收到取消请求，正在取消当前任务: ${downloadingTask.comicName}');
-      unawaited(_cancelTask(downloadingTask));
+      await _cancelTask(downloadingTask);
       return;
     }
 
@@ -88,14 +90,14 @@ class DownloadQueueManager {
       return;
     }
 
-    final fallbackTask = _taskRepository.findByTaskKey(
+    final fallbackTask = await _taskRepository.findByTaskKey(
       _downloadingTaskKey,
       incompleteOnly: true,
     );
 
     if (fallbackTask != null) {
       logger.i('收到取消请求(回退匹配)，正在取消任务: ${fallbackTask.comicName}');
-      unawaited(_cancelTask(fallbackTask));
+      await _cancelTask(fallbackTask);
     }
   }
 
@@ -109,7 +111,10 @@ class DownloadQueueManager {
     required String chapterKey,
   }) async {
     final taskKey = buildDownloadChapterTaskKey(from, comicId, chapterKey);
-    final dbTask = _taskRepository.findByTaskKey(taskKey, incompleteOnly: true);
+    final dbTask = await _taskRepository.findByTaskKey(
+      taskKey,
+      incompleteOnly: true,
+    );
     if (dbTask == null) return;
 
     if (dbTask.isDownloading) {
@@ -119,7 +124,7 @@ class DownloadQueueManager {
     }
 
     logger.i('收到章节取消请求(排队中)，直接摘除任务: ${dbTask.comicName}');
-    objectbox.downloadTaskBox.remove(dbTask.id);
+    await database.downloadTasks.removeById(dbTask.id);
     await _deleteTaskChapterFiles(dbTask);
     try {
       await cleanupDownloadTaskTemporaryFiles(taskKey);
@@ -155,7 +160,7 @@ class DownloadQueueManager {
     dbTask.status = t.download.statusCancelling;
     dbTask.isDownloading = false;
     dbTask.isCompleted = true;
-    objectbox.downloadTaskBox.put(dbTask);
+    await database.downloadTasks.put(dbTask);
     triggerDownloadCancelSignal(taskKey);
 
     final source = dbTask.taskInfo?.from;
@@ -172,15 +177,10 @@ class DownloadQueueManager {
   }
 
   /// 队列中剩余任务数
-  int get queueLength => objectbox.downloadTaskBox
-      .query(DownloadTask_.isCompleted.equals(false))
-      .build()
-      .find()
-      .length;
+  Future<int> get queueLength => database.downloadTasks.countIncomplete();
 
-  List<DownloadTask> _runnableTasks() {
-    return _taskRepository
-        .getAll(incompleteOnly: true)
+  Future<List<DownloadTask>> _runnableTasks() async {
+    return (await _taskRepository.getAll(incompleteOnly: true))
         .where(
           (task) => _taskRepository.readPayload(task)?.stateCode != 'failed',
         )
@@ -189,8 +189,12 @@ class DownloadQueueManager {
   }
 
   /// 检查指定章节的任务是否已存在（未完成的任务）
-  bool chapterTaskExists(String from, String comicId, String chapterKey) {
-    return _taskRepository.findByChapterKey(
+  Future<bool> chapterTaskExists(
+    String from,
+    String comicId,
+    String chapterKey,
+  ) async {
+    return await _taskRepository.findByChapterKey(
           from: from,
           comicId: comicId,
           chapterKey: chapterKey,
@@ -201,7 +205,7 @@ class DownloadQueueManager {
 
   /// 统一的队列处理入口
   Future<void> _processQueue({bool bypassStartupResumeDelay = false}) async {
-    final allPendingTasks = _runnableTasks();
+    final allPendingTasks = await _runnableTasks();
     final pendingTasks = bypassStartupResumeDelay || !_startupResumeWaiting
         ? allPendingTasks
         : allPendingTasks
@@ -244,7 +248,7 @@ class DownloadQueueManager {
     if (task == null) {
       logger.w("任务 ${dbTask.comicName} 无任务信息，跳过");
       dbTask.isCompleted = true;
-      objectbox.downloadTaskBox.put(dbTask);
+      await database.downloadTasks.put(dbTask);
       Future.microtask(() => _processQueue());
       return;
     }
@@ -270,7 +274,7 @@ class DownloadQueueManager {
       lastErrorMessage: '',
     );
     logger.d("dbTask.status: ${dbTask.status}");
-    objectbox.downloadTaskBox.put(dbTask);
+    await database.downloadTasks.put(dbTask);
 
     final displayName = _taskDisplayName(task);
     _progressController.add(
@@ -290,7 +294,7 @@ class DownloadQueueManager {
       // 不能把进入队列时保存的旧 dbTask 再写回去，否则可能覆盖掉最新的
       // 进度 / stateCode。先排空后台写，保证读到的是最新提交。
       await _taskRepository.flushTaskWrites(taskKey);
-      final completedDbTask = _taskRepository.findByTaskKey(taskKey);
+      final completedDbTask = await _taskRepository.findByTaskKey(taskKey);
       if (completedDbTask != null) {
         final completedPayload =
             _taskRepository.readPayload(completedDbTask) ?? task;
@@ -301,7 +305,7 @@ class DownloadQueueManager {
             stateCode: 'completed',
             phaseCode: 'completed',
           );
-        objectbox.downloadTaskBox.put(completedDbTask);
+        await database.downloadTasks.put(completedDbTask);
       }
 
       _progressController.add(
@@ -323,10 +327,10 @@ class DownloadQueueManager {
       );
 
       // 下载成功后清理所有已完成的任务记录
-      _removeAllCompletedTasks();
+      await _removeAllCompletedTasks();
       logger.d('_processQueue: 任务完成并清理');
     } catch (e, s) {
-      if (_isTaskCancelledOrMarked(taskKey, e)) {
+      if (await _isTaskCancelledOrMarked(taskKey, e)) {
         logger.i('任务已取消: $displayName');
         await _removeCancelledTaskRecord(taskKey);
 
@@ -337,7 +341,7 @@ class DownloadQueueManager {
           ),
         );
       } else {
-        if (_isTaskGoneOrCompleted(taskKey)) {
+        if (await _isTaskGoneOrCompleted(taskKey)) {
           logger.i('任务状态已变更，跳过失败回写: $displayName');
           await _removeCancelledTaskRecord(taskKey);
           _progressController.add(
@@ -352,7 +356,8 @@ class DownloadQueueManager {
         logger.e("任务 $displayName 失败", error: e, stackTrace: s);
 
         await _taskRepository.flushTaskWrites(taskKey);
-        final currentDbTask = _taskRepository.findByTaskKey(taskKey) ?? dbTask;
+        final currentDbTask =
+            await _taskRepository.findByTaskKey(taskKey) ?? dbTask;
         final currentPayload =
             _taskRepository.readPayload(currentDbTask) ?? task;
         currentDbTask.isDownloading = false;
@@ -363,7 +368,7 @@ class DownloadQueueManager {
           lastErrorCode: e.runtimeType.toString(),
           lastErrorMessage: e.toString(),
         );
-        objectbox.downloadTaskBox.put(currentDbTask);
+        await database.downloadTasks.put(currentDbTask);
 
         _progressController.add(
           DownloadProgress(
@@ -461,10 +466,10 @@ class DownloadQueueManager {
   /// 添加一个单章节下载任务到队列。
   ///
   /// 同一章节已有未完成任务时直接返回；已有失败任务时自动重置为排队。
-  /// 任务会被持久化到 ObjectBox，随后 [watchTasks] 的 query watcher 会触发
+  /// 任务会被持久化到数据库，随后 [watchTasks] 的表变更流会触发
   /// [_processQueue] 开始执行。
-  void addTask(DownloadTaskJson task) {
-    final existing = _taskRepository.findByChapterKey(
+  Future<void> addTask(DownloadTaskJson task) async {
+    final existing = await _taskRepository.findByChapterKey(
       from: task.from,
       comicId: task.comicId,
       chapterKey: task.chapterKey,
@@ -474,7 +479,7 @@ class DownloadQueueManager {
       final payload = _taskRepository.readPayload(existing);
       if (payload?.stateCode == 'failed') {
         logger.i('章节任务失败残留，自动重新排队: ${task.taskKey}');
-        retryTask(existing.id);
+        await retryTask(existing.id);
         return;
       }
       logger.w("任务 ${task.comicName} ${task.chapterRef.title} 已存在，跳过添加");
@@ -484,7 +489,6 @@ class DownloadQueueManager {
       return;
     }
 
-    final box = objectbox.downloadTaskBox;
     final downloadTask = DownloadTask()
       ..comicId = task.comicId
       ..comicName = task.comicName
@@ -493,27 +497,27 @@ class DownloadQueueManager {
       ..status = t.download.statusWaiting
       ..taskInfo = task;
 
-    final id = box.put(downloadTask);
+    final id = await database.downloadTasks.put(downloadTask);
     logger.d('addTask: 已添加任务 id=$id, taskKey=${task.taskKey}');
   }
 
   /// 批量添加单章节任务（多选下载）。逐个走 [addTask] 的判重逻辑。
-  void addTasks(List<DownloadTaskJson> tasks) {
+  Future<void> addTasks(List<DownloadTaskJson> tasks) async {
     for (final task in tasks) {
-      addTask(task);
+      await addTask(task);
     }
   }
 
   /// 手动重试一个已失败任务。
   Future<void> retryTask(int taskId) async {
-    final task = objectbox.downloadTaskBox.get(taskId);
+    final task = await database.downloadTasks.getById(taskId);
     if (task == null || task.isCompleted) return;
     final payload = _taskRepository.readPayload(task);
     if (payload == null) return;
     // 先排空在途写，防止旧 checkpoint 覆盖重置后的排队态。
     await _taskRepository.flushTaskWrites(payload.taskKey);
 
-    _taskRepository.putPayload(
+    await _taskRepository.putPayload(
       task,
       payload.copyWith(
         stateCode: 'queued',
@@ -535,34 +539,16 @@ class DownloadQueueManager {
   ///
   /// 应用启动后、开始监听任务队列前调用一次，避免上次崩溃/杀进程后留下的
   /// `isDownloading == true` 任务永远无法被调度。
-  void resetStuckTasks() {
-    _taskRepository.resetInterruptedTasks();
+  Future<void> resetStuckTasks() {
+    return _taskRepository.resetInterruptedTasks();
   }
 
-  void watchTasks({Duration startupResumeDelay = Duration.zero}) {
+  Future<void> watchTasks({Duration startupResumeDelay = Duration.zero}) async {
     stopWatchingTasks();
 
-    final startupQuery = objectbox.downloadTaskBox
-        .query(
-          DownloadTask_.isCompleted
-              .equals(false)
-              .and(DownloadTask_.isDownloading.equals(false)),
-        )
-        .build();
-    late final List<DownloadTask> startupTasks;
-    try {
-      startupTasks = startupQuery.find();
-    } finally {
-      startupQuery.close();
-    }
-
-    final watchedQuery = objectbox.downloadTaskBox
-        .query(
-          DownloadTask_.isCompleted
-              .equals(false)
-              .and(DownloadTask_.isDownloading.equals(false)),
-        )
-        .watch(triggerImmediately: startupResumeDelay == Duration.zero);
+    final startupTasks = (await database.downloadTasks.listIncomplete())
+        .where((task) => !task.isDownloading)
+        .toList();
 
     _startupResumeTaskIds
       ..clear()
@@ -579,13 +565,15 @@ class DownloadQueueManager {
         _startupResumeTimer = null;
         logger.i('应用启动下载恢复延迟结束，开始处理下载队列');
         if (!_isProcessing) {
-          _processQueue();
+          unawaited(_processQueue());
         }
       });
     }
 
-    _watchSubscription = watchedQuery.listen((query) {
-      final pendingTasks = query.find();
+    _watchSubscription = database.downloadTasks.watchIncomplete().listen((
+      tasks,
+    ) {
+      final pendingTasks = tasks.where((task) => !task.isDownloading).toList();
       if (pendingTasks.isNotEmpty && !_isProcessing) {
         final hasNewTaskDuringStartupDelay =
             _startupResumeWaiting &&
@@ -593,7 +581,11 @@ class DownloadQueueManager {
               (task) => !_startupResumeTaskIds.contains(task.id),
             );
         if (!_startupResumeWaiting || hasNewTaskDuringStartupDelay) {
-          _processQueue(bypassStartupResumeDelay: hasNewTaskDuringStartupDelay);
+          unawaited(
+            _processQueue(
+              bypassStartupResumeDelay: hasNewTaskDuringStartupDelay,
+            ),
+          );
         }
       }
     });
@@ -616,12 +608,12 @@ class DownloadQueueManager {
   Future<void> _removeCancelledTaskRecord(String taskKey) async {
     // 先排空在途写，再删记录，防止旧写复活已删除的任务。
     await _taskRepository.flushTaskWrites(taskKey);
-    final cancelledTask = _taskRepository.findByTaskKey(taskKey);
+    final cancelledTask = await _taskRepository.findByTaskKey(taskKey);
     final resolvedTaskKey = cancelledTask == null
         ? taskKey
         : downloadTaskKeyOf(cancelledTask);
     if (cancelledTask != null) {
-      objectbox.downloadTaskBox.remove(cancelledTask.id);
+      await database.downloadTasks.removeById(cancelledTask.id);
     }
     try {
       await cleanupDownloadTaskTemporaryFiles(resolvedTaskKey);
@@ -636,14 +628,11 @@ class DownloadQueueManager {
   }
 
   /// 删除所有已完成的任务记录
-  void _removeAllCompletedTasks() {
-    final completedTasks = objectbox.downloadTaskBox
-        .query(DownloadTask_.isCompleted.equals(true))
-        .build()
-        .find();
+  Future<void> _removeAllCompletedTasks() async {
+    final completedTasks = await database.downloadTasks.listCompleted();
 
     if (completedTasks.isNotEmpty) {
-      objectbox.downloadTaskBox.removeMany(
+      await database.downloadTasks.removeByIds(
         completedTasks.map((e) => e.id).toList(),
       );
       logger.d('清理了 ${completedTasks.length} 个已完成的任务记录');
@@ -655,13 +644,13 @@ bool _isTaskCancelledError(Object error) {
   return error.toString().contains(downloadTaskCancelledMessage);
 }
 
-bool _isTaskCancelledOrMarked(String taskKey, Object error) {
+Future<bool> _isTaskCancelledOrMarked(String taskKey, Object error) async {
   if (_isTaskCancelledError(error) ||
       error.toString().contains(_kQjsRuntimeCancelledMessage)) {
     return true;
   }
 
-  final task = const DownloadTaskRepository().findByTaskKey(taskKey);
+  final task = await const DownloadTaskRepository().findByTaskKey(taskKey);
 
   if (task == null) {
     return true;
@@ -675,8 +664,8 @@ bool _isTaskCancelledOrMarked(String taskKey, Object error) {
   return isMarkedCancelled;
 }
 
-bool _isTaskGoneOrCompleted(String taskKey) {
-  final task = const DownloadTaskRepository().findByTaskKey(taskKey);
+Future<bool> _isTaskGoneOrCompleted(String taskKey) async {
+  final task = await const DownloadTaskRepository().findByTaskKey(taskKey);
 
   if (task == null) {
     return true;
@@ -694,7 +683,7 @@ Future<void> startDownloadTask(DownloadTaskJson task) async {
     'startDownloadTask: comicId=${task.comicId}, chapter=${task.chapterKey}',
   );
 
-  DownloadQueueManager.instance.addTask(task);
+  await DownloadQueueManager.instance.addTask(task);
 
   if (Platform.isAndroid) {
     await ForegroundTaskService.instance.start();
@@ -709,7 +698,7 @@ Future<void> startDownloadTasks(List<DownloadTaskJson> tasks) async {
     );
   }
 
-  DownloadQueueManager.instance.addTasks(tasks);
+  await DownloadQueueManager.instance.addTasks(tasks);
 
   if (tasks.isNotEmpty && Platform.isAndroid) {
     await ForegroundTaskService.instance.start();

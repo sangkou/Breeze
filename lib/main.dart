@@ -29,13 +29,14 @@ import 'package:zephyr/i18n/i18n_helper.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/i18n/system_locale_service.dart';
 import 'package:zephyr/network/http/wind_http.dart';
-import 'package:zephyr/util/doh_setting.dart';
-import 'package:zephyr/util/network_policy.dart';
-import 'package:zephyr/util/process_exit.dart';
-import 'package:zephyr/util/proxy_setting.dart';
+import 'package:zephyr/util/network/doh_setting.dart';
+import 'package:zephyr/util/network/network_policy.dart';
+import 'package:zephyr/util/system/process_exit.dart';
+import 'package:zephyr/util/network/proxy_setting.dart';
 import 'package:zephyr/network/sync/sync_device_id.dart';
+import 'package:zephyr/database/database.dart';
+import 'package:zephyr/database/app_database.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/object_box.dart';
 import 'package:zephyr/page/comic_follow/cubit/comic_follow_cubit.dart';
 import 'package:zephyr/platform/desktop/desktop_window.dart';
 import 'package:zephyr/platform/desktop/system_tray.dart';
@@ -46,12 +47,16 @@ import 'package:zephyr/service/startup_database_snapshot_service.dart';
 import 'package:zephyr/src/rust/api/qjs.dart';
 import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/src/rust/api/system.dart' as rust_system;
-import 'package:zephyr/util/debouncer.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/device/responsive.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/error/uncaught_error_log.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
+import 'package:zephyr/util/ohos/platform_plugins.dart';
 import 'package:zephyr/util/font/font_profile.dart';
-import 'package:zephyr/util/get_path.dart';
-import 'package:zephyr/util/manage_cache.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/storage/get_path.dart';
+import 'package:zephyr/util/storage/manage_cache.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 import 'package:zephyr/widgets/database_incompatible_app.dart';
 import 'package:zephyr/widgets/desktop/custom_title_bar.dart';
 import 'package:zephyr/widgets/desktop/intent.dart';
@@ -60,9 +65,9 @@ import 'package:zephyr/main.dart';
 export 'package:zephyr/network/http/wind_http.dart'
     show WindHttp, FetchResponse, FetchException, fetch, fetchDirect;
 
-ObjectBox? _objectbox;
-ObjectBox get objectbox => _objectbox!;
-set objectbox(ObjectBox value) => _objectbox = value;
+Database? _database;
+Database get database => _database!;
+set database(Database value) => _database = value;
 
 final appRouter = AppRouter();
 
@@ -84,13 +89,47 @@ final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 final navigatorKey = appRouter.navigatorKey;
 
 class AppScrollBehavior extends MaterialScrollBehavior {
-  const AppScrollBehavior();
+  const AppScrollBehavior({
+    this.showScrollbar = true,
+    this.alwaysVisible = false,
+  });
+
+  final bool showScrollbar;
+  final bool alwaysVisible;
 
   @override
   Set<PointerDeviceKind> get dragDevices => {
     ...super.dragDevices,
     PointerDeviceKind.mouse,
   };
+
+  @override
+  bool shouldNotify(covariant ScrollBehavior oldDelegate) {
+    return oldDelegate is! AppScrollBehavior ||
+        showScrollbar != oldDelegate.showScrollbar ||
+        alwaysVisible != oldDelegate.alwaysVisible;
+  }
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    // 与 Material 默认一致：横向 ScrollView 不自动加滚动条，
+    // 避免 PageView / TabBarView 等周期滚动容器被加上常驻横条。
+    if (!showScrollbar ||
+        axisDirectionToAxis(details.direction) == Axis.horizontal) {
+      return child;
+    }
+    return Scrollbar(
+      controller: details.controller,
+      thumbVisibility: alwaysVisible,
+      thickness: 6,
+      radius: const Radius.circular(3),
+      child: child,
+    );
+  }
 }
 
 class RemoteOutput extends LogOutput {
@@ -123,12 +162,49 @@ class MyAlwaysLogFilter extends LogFilter {
   bool shouldLog(LogEvent event) => true; // 强制通过所有日志
 }
 
+Future<void> _initOhosUncaughtErrorLogger() async {
+  try {
+    final logDirectory = await getLogDirectoryPath();
+    await initUncaughtErrorFileLogger(logDirectory);
+  } catch (_) {
+    // 启动早期拿不到目录时保留控制台输出，不阻断应用启动。
+  }
+}
+
+void _installFallbackErrorHandlers() {
+  // 捕获 Flutter 框架层错误（如 Widget 构建中的异常）
+  FlutterError.onError = (FlutterErrorDetails details) {
+    logger.e(
+      "Flutter Framework Error",
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+    logUncaughtError(
+      details.exception,
+      details.stack ?? StackTrace.current,
+      source: "Flutter Framework Error",
+    );
+  };
+
+  // 捕获异步错误和底层错误（如 Future.error, Timer 等）
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    logger.e("Async/Platform Error", error: error, stackTrace: stack);
+    logUncaughtError(error, stack, source: "Async/Platform Error");
+    return true; // 表示错误已被处理
+  };
+}
+
 Future<void> main(List<String> args) async {
   // 1. 基础初始化
   WidgetsFlutterBinding.ensureInitialized();
+  installOhosPlatformPlugins();
 
-  // 先生成本地同步设备 ID，后续文件夹/链接的版本向量会使用它
-  await ensureSyncDeviceId();
+  // OHOS 没有 Sentry；在启动最早期准备未捕获异常文件日志，
+  // 普通业务日志不落盘，避免账号密码等敏感参数进入文件。
+  if (isOhos) {
+    await _initOhosUncaughtErrorLogger();
+    _installFallbackErrorHandlers();
+  }
 
   // desktop_webview_linux 必需的标题栏子进程入口
   // 不添加会导致 Linux 下 WebView 窗口关闭时 segfault 崩溃
@@ -138,23 +214,14 @@ Future<void> main(List<String> args) async {
 
   const sentryDsn = String.fromEnvironment('sentry_dsn', defaultValue: '');
 
-  if (sentryDsn.isEmpty) {
+  // OHOS 上 Sentry 的 native 侧不可用，直接跳过初始化（Dart 事件也没有传输通道）。
+  if (sentryDsn.isEmpty || isOhos) {
     // 1. 如果是调试模式，配置 logger 捕获全局错误
-    if (kDebugMode || sentryDsn.isEmpty) {
-      // 捕获 Flutter 框架层错误（如 Widget 构建中的异常）
-      FlutterError.onError = (FlutterErrorDetails details) {
-        logger.e(
-          "Flutter Framework Error",
-          error: details.exception,
-          stackTrace: details.stack,
-        );
-      };
-
-      // 捕获异步错误和底层错误（如 Future.error, Timer 等）
-      PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-        logger.e("Async/Platform Error", error: error, stackTrace: stack);
-        return true; // 表示错误已被处理
-      };
+    if (kDebugMode || sentryDsn.isEmpty || isOhos) {
+      // OHOS 已在启动最早期安装同一组处理器；这里避免重复覆盖。
+      if (!isOhos) {
+        _installFallbackErrorHandlers();
+      }
     }
 
     try {
@@ -175,12 +242,13 @@ Future<void> main(List<String> args) async {
           child: const MyApp(),
         ),
       );
-    } on ObjectBoxSchemaMismatchException {
+    } on DatabaseIncompatibleException {
       await _runDatabaseIncompatibleApp();
     } catch (e, stack) {
       // 捕获初始化阶段（_initServices）可能抛出的异常
-      if (kDebugMode || sentryDsn.isEmpty) {
+      if (kDebugMode || sentryDsn.isEmpty || isOhos) {
         logger.e("App Setup Failed", error: e, stackTrace: stack);
+        logUncaughtError(e, stack, source: "App Setup Failed");
       }
     }
 
@@ -244,7 +312,7 @@ Future<void> main(List<String> args) async {
             ),
           ),
         );
-      } on ObjectBoxSchemaMismatchException {
+      } on DatabaseIncompatibleException {
         await _runDatabaseIncompatibleApp();
       } catch (exception, stackTrace) {
         await Sentry.captureException(exception, stackTrace: stackTrace);
@@ -270,6 +338,9 @@ Future<void> _runDatabaseIncompatibleApp() async {
 Future<(GlobalSettingCubit, PluginRegistryCubit)> _initServices() async {
   // 初始化rust
   await initRustLib();
+  // 同步设备 ID 必须在打开数据库（v5→v6 迁移会用它提升版本向量）之前就绪。
+  // 写入 Rust 侧缓存后，后台 isolate 也能同步读到同一个值。
+  await ensureSyncDeviceId();
 
   // 初始化 i18n：先设置默认中文，待 GlobalSettingCubit 加载后再根据用户设置或系统语言切换。
   LocaleSettings.setLocale(AppLocale.enUs);
@@ -281,7 +352,9 @@ Future<(GlobalSettingCubit, PluginRegistryCubit)> _initServices() async {
   // 关掉rust端，主要是anyhow的堆栈调用信息
   enableStacktrace(enabled: false);
 
-  enableRustLog(enabled: kDebugMode);
+  // release 下可用 --dart-define=rust_log=true 打开 Rust 日志；
+  // 级别仍可被 RUST_LOG 覆盖（默认 debug，DNS/HTTP 噪音已静音）。
+  enableRustLog(enabled: kDebugMode || const bool.fromEnvironment('rust_log'));
 
   if (kDebugMode) {
     setQjsErrorStackEnabled(enabled: true);
@@ -295,8 +368,10 @@ Future<(GlobalSettingCubit, PluginRegistryCubit)> _initServices() async {
     setSimplifyPluginErrorDisplay(enabled: false);
   }
 
-  // 初始化前台任务
-  FlutterForegroundTask.initCommunicationPort();
+  // 初始化前台任务（Android 专用）
+  if (Platform.isAndroid) {
+    FlutterForegroundTask.initCommunicationPort();
+  }
 
   // 重采样触控刷新率
   GestureBinding.instance.resamplingEnabled = true;
@@ -325,10 +400,16 @@ Future<(GlobalSettingCubit, PluginRegistryCubit)> _initServices() async {
     ]);
   }
 
-  objectbox = await ObjectBox.create();
-  final setting = objectbox.userSettingBox.get(1);
+  final dbRoot = await getDbPath();
+  database = await Database.open(
+    path: '$dbRoot/breeze_db.sqlite3',
+    legacyObjectBoxDir: '$dbRoot/breeze_db',
+    archiveLegacyData: true,
+  );
+  final settingFuture = database.userSettings.get();
+  final setting = await settingFuture;
   if (setting == null) {
-    objectbox.userSettingBox.put(UserSetting());
+    await database.userSettings.put(UserSetting());
   }
 
   final globalSettingCubit = GlobalSettingCubit();
@@ -387,8 +468,14 @@ Future<(GlobalSettingCubit, PluginRegistryCubit)> _initServices() async {
 
   await applyEinkAutoDetection(globalSettingCubit);
 
-  // Rust 已在本函数开头初始化；快照查询和 Brotli 压缩均在后台执行。
-  unawaited(saveStartupDatabaseSnapshot());
+  // Rust 已在本函数开头初始化；快照查询和 Brotli 压缩都在后台 isolate 执行，
+  // 再延后到首帧之后，避免启动阶段和 UI 争抢 CPU/磁盘。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future<void>.delayed(
+      const Duration(seconds: 2),
+      saveStartupDatabaseSnapshot,
+    ).ignore();
+  });
 
   return (globalSettingCubit, pluginRegistryCubit);
 }
@@ -444,6 +531,16 @@ Future<bool> _probeProxyWithTimeout(String proxyUrl) async {
   }
 }
 
+Widget _buildDynamicColor({
+  required Widget Function(ColorScheme? light, ColorScheme? dark) builder,
+}) {
+  if (isOhos) {
+    // OHOS 没有 dynamic_color 平台实现，直接跳过插件调用。
+    return builder(null, null);
+  }
+  return DynamicColorBuilder(builder: builder);
+}
+
 Future<void> addArchitectureTagsToSentry() async {
   try {
     final is64Bit = sizeOf<Pointer>() == 8;
@@ -457,6 +554,9 @@ Future<void> addArchitectureTagsToSentry() async {
     } else if (Platform.isIOS) {
       final iosInfo = await DeviceInfoPlugin().iosInfo;
       deviceSupportedAbis = 'arm64 (${iosInfo.utsname.machine})';
+    } else if (isOhos) {
+      final info = await getOhosDeviceInfo();
+      deviceSupportedAbis = info?.abis.join(', ') ?? 'unknown';
     } else if (Platform.isWindows) {
       deviceSupportedAbis =
           Platform.environment['PROCESSOR_ARCHITECTURE'] ?? 'unknown';
@@ -579,6 +679,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       case WindowCloseRequestedEvent(:final request):
         request.cancel();
         _handleCloseRequest();
+      // ignore: unreachable_switch_case
       case _:
         break;
     }
@@ -599,7 +700,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // 先隐藏窗口（同步 FFI 调用，零延迟），再强杀进程，
     // 让用户感知不到 Dart VM 回收的延迟。
     mainWindow?.hide();
-    objectbox.close();
+    await database.close();
     nuclearKillProcess();
   }
 
@@ -719,12 +820,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         builder: (context, _) {
           final globalSettingState = context.watch<GlobalSettingCubit>().state;
 
-          return DynamicColorBuilder(
+          return _buildDynamicColor(
             builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
               ColorScheme lightColorScheme;
               ColorScheme darkColorScheme;
 
-              if (globalSettingState.dynamicColor == true) {
+              if (globalSettingState.dynamicColor && !isOhos) {
                 lightColorScheme =
                     lightDynamic ??
                     ColorScheme.fromSeed(
@@ -772,7 +873,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 routerConfig: appRouter.config(
                   navigatorObservers: () => [AutoRouteObserver()],
                 ),
-                scrollBehavior: const AppScrollBehavior(),
+                scrollBehavior: AppScrollBehavior(
+                  showScrollbar: globalSettingState.effectiveShowScrollbar,
+                  alwaysVisible: globalSettingState.alwaysShowScrollbar,
+                ),
                 builder: (context, child) {
                   Widget content = Actions(
                     actions: <Type, Action<Intent>>{

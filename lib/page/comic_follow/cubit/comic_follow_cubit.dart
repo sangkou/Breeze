@@ -20,8 +20,8 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
   Future<void> loadFromDatabase() async {
     emit(state.copyWith(status: ComicFollowStatus.loading));
     try {
-      final items = ComicFollowService.instance.listActiveFollows();
-      final histories = ComicFollowService.instance.listActiveHistories();
+      final items = await ComicFollowService.instance.listActiveFollows();
+      final histories = await ComicFollowService.instance.listActiveHistories();
       emit(
         state.copyWith(
           status: ComicFollowStatus.success,
@@ -66,7 +66,7 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
   }
 
   Future<void> refreshHistories() async {
-    final histories = ComicFollowService.instance.listActiveHistories();
+    final histories = await ComicFollowService.instance.listActiveHistories();
     emit(state.copyWith(histories: histories));
   }
 
@@ -88,7 +88,9 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
     final latestChapterTitle = latest == null ? '' : latest.name;
 
     // 直接从数据库查询，避免仅依赖内存状态导致重复插入违反唯一约束
-    final existing = ComicFollowService.instance.getFollowByUniqueKey(key);
+    final existing = await ComicFollowService.instance.getFollowByUniqueKey(
+      key,
+    );
     ComicFollow follow;
     if (existing != null) {
       follow = existing.copyWith(
@@ -141,7 +143,7 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
       );
     }
 
-    ComicFollowService.instance.putFollow(follow);
+    await ComicFollowService.instance.putFollow(follow);
 
     final newItems = List<ComicFollow>.from(state.items);
     final index = newItems.indexWhere(
@@ -167,12 +169,12 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
   /// （`PluginComicDetailSource.eps`），下载快照/本地记录不要传——
   /// 那是已下载数，语义不对，只增不减的守卫也救不了。
   /// 无需同步（未追更/已删除/数没变大）时返回 null。
-  ComicFollow? syncFollowFromDetailAndPersist({
+  Future<ComicFollow?> syncFollowFromDetailAndPersist({
     required String source,
     required String comicId,
     required int onlineChapterCount,
     required String onlineLatestTitle,
-  }) {
+  }) async {
     final updated = resolveFollowSyncFromDetail(
       follow: getFollow(source, comicId),
       onlineChapterCount: onlineChapterCount,
@@ -180,7 +182,7 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
       now: DateTime.now().toUtc(),
     );
     if (updated == null) return null;
-    ComicFollowService.instance.putFollow(updated);
+    await ComicFollowService.instance.putFollow(updated);
     final newItems = List<ComicFollow>.from(state.items);
     final index = newItems.indexWhere(
       (item) => item.uniqueKey == updated.uniqueKey,
@@ -201,7 +203,7 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
     }
     final now = DateTime.now().toUtc();
     final removed = existing.copyWith(deleted: true, updatedAt: now);
-    ComicFollowService.instance.putFollow(removed);
+    await ComicFollowService.instance.putFollow(removed);
 
     final newItems = state.items
         .where((item) => item.uniqueKey != removed.uniqueKey || item.deleted)
@@ -213,18 +215,20 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
   /// 清掉未读徽标。不碰 detected 数据，只是确认“我看到了当前最新”。
   Future<void> markAllAsRead() async {
     final now = DateTime.now().toUtc();
-    final newItems = state.items.map((item) {
+    final newItems = <ComicFollow>[];
+    for (final item in state.items) {
       if (item.deleted || !state.hasUnreadUpdate(item)) {
-        return item;
+        newItems.add(item);
+        continue;
       }
       final marked = item.copyWith(
         lastChapterCount: item.detectedChapterCount,
         hasUpdate: false,
         updatedAt: now,
       );
-      ComicFollowService.instance.putFollow(marked);
-      return marked;
-    }).toList();
+      await ComicFollowService.instance.putFollow(marked);
+      newItems.add(marked);
+    }
     emit(state.copyWith(items: newItems, revision: state.revision + 1));
   }
 
@@ -300,7 +304,7 @@ class ComicFollowCubit extends Cubit<ComicFollowState> {
       );
     }
 
-    ComicFollowService.instance.putFollow(updated);
+    await ComicFollowService.instance.putFollow(updated);
 
     final newItems = List<ComicFollow>.from(state.items);
     final index = newItems.indexWhere(

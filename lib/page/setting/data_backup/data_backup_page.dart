@@ -3,14 +3,15 @@ import 'dart:io';
 import 'package:auto_route/auto_route.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path/path.dart' as p;
 import 'package:zephyr/main.dart';
 import 'package:zephyr/page/setting/common/setting_ui.dart';
 import 'package:zephyr/service/update/check_update.dart';
 import 'package:zephyr/i18n/strings.g.dart';
-import 'package:zephyr/util/get_path.dart';
-import 'package:zephyr/util/permission.dart';
+import 'package:zephyr/util/storage/get_path.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
+import 'package:zephyr/util/system/permission.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 import 'package:zephyr/page/setting/data_backup/method.dart';
@@ -101,8 +102,8 @@ class _DataBackupPageState extends State<DataBackupPage> {
     final fileName = 'Breeze-export-$timestamp.zip';
     late final String zipPath;
 
-    // iOS 的 file_selector 未实现 getDirectoryPath，先写到缓存再走系统分享面板
-    if (Platform.isIOS) {
+    // iOS / OHOS 没有可写的目录路径：先写缓存，再走系统分享/另存为。
+    if (Platform.isIOS || isOhos) {
       final cachePath = await getCachePath();
       zipPath = p.join(cachePath, fileName);
     } else {
@@ -131,10 +132,21 @@ class _DataBackupPageState extends State<DataBackupPage> {
       if (!mounted) return;
       Navigator.of(context).pop();
 
-      if (Platform.isIOS) {
+      if (isOhos) {
+        final saved = await saveOhosFileToPicker(
+          zipPath,
+          suggestedName: fileName,
+        );
+        if (saved) {
+          showSuccessToast(t.dataBackup.exportSuccess);
+          try {
+            await File(zipPath).delete();
+          } catch (_) {}
+        }
+      } else if (Platform.isIOS) {
         // 先提示再弹系统分享面板，避免对话框盖住分享 UI
         showSuccessToast(t.dataBackup.exportShareHint);
-        await OpenFile.open(zipPath);
+        await openFileWithSystem(zipPath);
       } else {
         await _showResultDialog(
           t.dataBackup.exportSuccess,
@@ -259,6 +271,10 @@ class _DataBackupPageState extends State<DataBackupPage> {
   /// 绕过 [file_selector] 选择大文件时把整个文件读入内存导致的 OOM；
   /// 其他平台继续使用 [file_selector]。
   Future<String?> _pickImportZipPath() async {
+    if (isOhos) {
+      logger.i('OHOS 平台，使用系统文件选择器');
+      return pickOhosFile(suffixes: const ['zip']);
+    }
     if (Platform.isAndroid) {
       logger.i('Android 平台，使用原生选择器');
       return pickBackupZipAndroid();

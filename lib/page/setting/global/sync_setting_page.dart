@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/i18n/strings.g.dart';
@@ -42,6 +43,8 @@ class _SyncSettingPageState extends State<SyncSettingPage> {
           _syncServiceType(state, cubit),
           webdavSync(context, state.syncSetting.syncServiceType),
           if (configuredSync) _autoSync(state, cubit),
+          if (configuredSync && state.syncSetting.autoSync)
+            _syncInterval(state, cubit),
           if (configuredSync && state.syncSetting.autoSync)
             _syncNotify(state, cubit),
           if (configuredSync) _syncSettings(state, cubit),
@@ -179,6 +182,120 @@ class _SyncSettingPageState extends State<SyncSettingPage> {
         }
       },
     );
+  }
+
+  Widget _syncInterval(GlobalSettingState state, GlobalSettingCubit cubit) {
+    final syncSetting = state.syncSetting;
+    return ListTile(
+      leading: const Icon(Icons.timer_outlined),
+      title: Text(t.settings.syncInterval),
+      subtitle: Text(t.settings.syncIntervalSubtitle),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${syncSetting.syncInterval} ${syncSetting.syncIntervalUnit.label}',
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontSize: 18, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
+      onTap: () => _editSyncInterval(syncSetting, cubit),
+    );
+  }
+
+  Future<void> _editSyncInterval(
+    SyncSettingState syncSetting,
+    GlobalSettingCubit cubit,
+  ) async {
+    var input = syncSetting.syncInterval.toString();
+    var unit = syncSetting.syncIntervalUnit;
+    String? errorText;
+
+    final result = await showDialog<({int value, SyncIntervalUnit unit})>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(t.settings.syncInterval),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                initialValue: input,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: <TextInputFormatter>[
+                  FilteringTextInputFormatter.digitsOnly,
+                ],
+                onChanged: (value) => input = value.trim(),
+                decoration: InputDecoration(
+                  labelText: t.settings.syncIntervalValue,
+                  errorText: errorText,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Text(t.settings.syncIntervalUnitLabel),
+                  const Spacer(),
+                  FluentDropdown<SyncIntervalUnit>(
+                    value: unit,
+                    displayValue: unit.label,
+                    items: <SyncIntervalUnit, String>{
+                      SyncIntervalUnit.second:
+                          t.settings.syncIntervalUnitSecond,
+                      SyncIntervalUnit.minute:
+                          t.settings.syncIntervalUnitMinute,
+                      SyncIntervalUnit.hour: t.settings.syncIntervalUnitHour,
+                    },
+                    onChanged: (value) {
+                      setDialogState(() => unit = value);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: Text(t.common.cancel),
+              onPressed: () => Navigator.pop(context),
+            ),
+            TextButton(
+              child: Text(t.common.ok),
+              onPressed: () {
+                final value = int.tryParse(input);
+                if (value == null || value <= 0) {
+                  setDialogState(
+                    () => errorText = t.settings.syncIntervalInvalid,
+                  );
+                  return;
+                }
+                Navigator.pop(context, (value: value, unit: unit));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == null) {
+      return;
+    }
+    if (result.value == syncSetting.syncInterval &&
+        result.unit == syncSetting.syncIntervalUnit) {
+      return;
+    }
+    cubit.updateSyncSetting(
+      (current) => current.copyWith(
+        syncInterval: result.value,
+        syncIntervalUnit: result.unit,
+      ),
+    );
+    showSuccessToast(t.common.settingSaved);
   }
 
   Widget _syncNotify(GlobalSettingState state, GlobalSettingCubit cubit) {

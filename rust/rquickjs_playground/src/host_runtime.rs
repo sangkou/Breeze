@@ -1,4 +1,5 @@
 use base64::Engine as _;
+use rquickjs::qjs;
 use rquickjs::{AsyncContext, AsyncRuntime, Ctx, Function, Value as JsValue, function::Func};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -140,6 +141,10 @@ const BUNDLE_DISPATCHER_JS: &str = r#"(async () => {
         const runner = new Function("module", "exports", "require", appendSourceUrl(source, name));
         runner(module, exports, requireFn);
         registry.set(String(name), normalizeApi(module.exports));
+      },
+      registerBundle(name, api) {
+        const registry = ensureRegistry();
+        registry.set(String(name), normalizeApi(api));
       },
       async invoke(payload) {
         const registry = ensureRegistry();
@@ -343,6 +348,11 @@ enum AsyncCommand {
         id: u64,
         submission: OnceTaskSubmission,
     },
+    SubmitWithBytecode {
+        id: u64,
+        script: String,
+        bytecode: Vec<u8>,
+    },
     Drop {
         id: u64,
     },
@@ -410,6 +420,40 @@ fn serialize_js_value<'js>(ctx: &Ctx<'js>, value: JsValue<'js>) -> Result<String
         Ok(None) => Ok("undefined".to_string()),
         Err(_) => Ok("null".to_string()),
     }
+}
+
+/// 把字节码还原成 bundle 包装函数并挂到当前上下文。
+///
+/// `JS_ReadObject` 得到编译期产物，`JS_EvalFunction` 执行它得到包装函数，
+/// 设为临时全局 `__breeze_bytecode_wrapper`，由随后的 JS 片段按
+/// `new Function("module", "exports", "require", source)` 相同的方式调用；
+/// JS 片段负责删除该全局。
+fn install_bytecode_wrapper<'js>(ctx: &Ctx<'js>, bytecode: &[u8]) -> Result<(), String> {
+    let raw = unsafe {
+        qjs::JS_ReadObject(
+            ctx.as_raw().as_ptr(),
+            bytecode.as_ptr(),
+            bytecode.len() as qjs::size_t,
+            qjs::JS_READ_OBJ_BYTECODE as ::core::ffi::c_int,
+        )
+    };
+    if unsafe { qjs::JS_IsException(raw) } {
+        return Err(crate::bytecode::take_exception_text(ctx));
+    }
+
+    // JS_EvalFunction 接管 raw 的所有权（内部 JS_CallFree / JS_FreeValue）。
+    let evaluated = unsafe { qjs::JS_EvalFunction(ctx.as_raw().as_ptr(), raw) };
+    if unsafe { qjs::JS_IsException(evaluated) } {
+        return Err(crate::bytecode::take_exception_text(ctx));
+    }
+
+    // from_raw 接管 evaluated 的所有权，drop 时释放。
+    let value = unsafe { JsValue::from_raw(ctx.clone(), evaluated) };
+    let wrapper = Function::from_value(value)
+        .map_err(|e| crate::tr!("bytecode-entry-is-not-a-function", e = e).to_string())?;
+    ctx.globals()
+        .set("__breeze_bytecode_wrapper", wrapper)
+        .map_err(|e| crate::tr!("failed-to-install-bytecode-wrapper", e = e).to_string())
 }
 
 impl HostRuntime {
@@ -505,6 +549,49 @@ impl HostRuntime {
         tokio::spawn(async move {
             let result: Result<String, String> = ctx
                 .async_with(async |ctx| {
+                    let value: JsValue = ctx
+                        .eval(script_owned.as_str())
+                        .map_err(|e: rquickjs::Error| crate::tr!("eval-failed", e = e))?;
+                    if let Some(promise) = value.as_promise() {
+                        let r = promise.clone().into_future::<JsValue>().await;
+                        match r {
+                            Ok(v) => serialize_js_value(&ctx, v),
+                            Err(e) => Err(format!("Promise rejected: {e}")),
+                        }
+                    } else {
+                        serialize_js_value(&ctx, value)
+                    }
+                })
+                .await;
+            let outcome = result.unwrap_or_else(|e| {
+                format!("{{\"ok\":false,\"error\":\"{}\"}}", e.replace('"', "\\\""))
+            });
+            with_runtime_shared(rt_id, |shared| {
+                finalize_task_and_notify(shared, id, Ok(outcome));
+                let _ = shared
+                    .worker_signal_tx
+                    .send(WorkerSignal::TaskCompleted { id });
+            });
+        });
+        Ok(())
+    }
+
+    pub fn submit_async_task_with_bytecode(
+        &self,
+        runtime_id: u64,
+        task_id: u64,
+        script: &str,
+        bytecode: &[u8],
+    ) -> Result<(), String> {
+        let ctx = self.context.clone();
+        let rt_id = runtime_id;
+        let id = task_id;
+        let script_owned = script.to_owned();
+        let bytecode_owned = bytecode.to_vec();
+        tokio::spawn(async move {
+            let result: Result<String, String> = ctx
+                .async_with(async |ctx| {
+                    install_bytecode_wrapper(&ctx, &bytecode_owned)?;
                     let value: JsValue = ctx
                         .eval(script_owned.as_str())
                         .map_err(|e: rquickjs::Error| crate::tr!("eval-failed", e = e))?;
@@ -991,6 +1078,23 @@ impl AsyncHostRuntime {
     }
 
     pub fn spawn(&self, script: impl Into<String>) -> Result<RuntimeTaskHandle, String> {
+        self.spawn_inner(script.into(), None)
+    }
+
+    /// 提交一个「先把字节码还原成包装函数、再执行脚本」的任务。
+    pub fn spawn_with_bytecode(
+        &self,
+        script: impl Into<String>,
+        bytecode: Vec<u8>,
+    ) -> Result<RuntimeTaskHandle, String> {
+        self.spawn_inner(script.into(), Some(bytecode))
+    }
+
+    fn spawn_inner(
+        &self,
+        script: String,
+        bytecode: Option<Vec<u8>>,
+    ) -> Result<RuntimeTaskHandle, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (result_tx, result_rx) = oneshot::channel::<Result<String, String>>();
 
@@ -1008,14 +1112,16 @@ impl AsyncHostRuntime {
             guard.insert(id, result_tx);
         }
 
-        if self
-            .tx
-            .send(WorkerSignal::Command(AsyncCommand::Submit {
+        let signal = match bytecode {
+            Some(bytecode) => WorkerSignal::Command(AsyncCommand::SubmitWithBytecode {
                 id,
-                script: script.into(),
-            }))
-            .is_err()
-        {
+                script,
+                bytecode,
+            }),
+            None => WorkerSignal::Command(AsyncCommand::Submit { id, script }),
+        };
+
+        if self.tx.send(signal).is_err() {
             if let Ok(mut guard) = self.states.lock() {
                 guard.remove(&id);
             }
@@ -1162,6 +1268,64 @@ impl AsyncHostRuntime {
             .wait_async()
             .await
             .map_err(|e| crate::tr!("failed-to-load-bundle", e = e))?;
+        let _ = parse_ok_json_payload(&raw)?;
+        self.remember_bundle_loaded(name);
+        Ok(())
+    }
+
+    /// 用 QuickJS 字节码加载 bundle（`bundle_load` 的快速路径）。
+    ///
+    /// `bytecode` 必须是 `JS_WriteObject(.., JS_WRITE_OBJ_BYTECODE)` 产出的裸
+    /// 字节码（不含宿主的缓存头）。加载语义与 `bundle_load` 一致：执行字节码
+    /// 里的程序得到 `(module, exports, require) => void` 包装函数，再用同样的
+    /// 参数调用并注册 `module.exports`。
+    pub async fn bundle_load_bytecode(
+        &self,
+        name: &str,
+        source: &str,
+        bytecode: &[u8],
+    ) -> Result<(), String> {
+        let _ = crate::source_map::extract_and_register(name, source);
+        self.bundle_ensure_dispatcher().await?;
+        let name_literal = serde_json::to_string(name)
+            .map_err(|e| crate::tr!("failed-to-serialize-bundle-name", e = e))?;
+
+        let script = format!(
+            r#"
+            (async () => {{
+              try {{
+                const wrapper = globalThis.__breeze_bytecode_wrapper;
+                delete globalThis.__breeze_bytecode_wrapper;
+                const host = globalThis.__host_bundle_runtime;
+                if (!host || typeof host.registerBundle !== "function") {{
+                  throw new Error("bundle dispatcher unavailable");
+                }}
+                if (typeof wrapper !== "function") {{
+                  throw new Error("bytecode entry is not a function");
+                }}
+                const module = {{ exports: {{}} }};
+                const exports = module.exports;
+                const requireFn = typeof require === "function" ? require.bind(globalThis) : undefined;
+                wrapper(module, exports, requireFn);
+                host.registerBundle({name_literal}, module.exports);
+                return JSON.stringify({{ ok: true, data: null }});
+              }} catch (err) {{
+                const base = Error.isError(err) ? err.message : String(err || "执行失败");
+                const stack = Error.isError(err) ? (err.stack || "") : "";
+                const debugScope = Error.isError(err) ? (err.__bundle_scope || "") : "";
+                return JSON.stringify({{ ok: false, error: base, stack, debug_scope: debugScope }});
+              }}
+            }})()
+            "#
+        );
+
+        let raw = self
+            .spawn_with_bytecode(script, bytecode.to_vec())
+            .map_err(|e| crate::tr!("failed-to-load-bundle", e = e))?
+            .wait_async()
+            .await
+            .map_err(|e| crate::tr!("failed-to-load-bundle", e = e))?;
+
         let _ = parse_ok_json_payload(&raw)?;
         self.remember_bundle_loaded(name);
         Ok(())
@@ -2076,6 +2240,21 @@ async fn handle_worker_command(
                 return true;
             }
             if let Err(err) = host.submit_async_task(runtime_id, id, &script) {
+                finalize_task_with_waiter(states, waiters, id, Err(err));
+            }
+            true
+        }
+        AsyncCommand::SubmitWithBytecode {
+            id,
+            script,
+            bytecode,
+        } => {
+            if !mark_running_if_available(states, id) {
+                return true;
+            }
+            if let Err(err) =
+                host.submit_async_task_with_bytecode(runtime_id, id, &script, &bytecode)
+            {
                 finalize_task_with_waiter(states, waiters, id, Err(err));
             }
             true

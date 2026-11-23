@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$GetComicInfoState {
 
- GetComicInfoStatus get status; NormalComicAllInfo? get allInfo; dynamic get comicInfo; String? get comicId; String get result;
+ GetComicInfoStatus get status; NormalComicAllInfo? get allInfo; dynamic get comicInfo; String? get comicId; bool get localCollected; Set<String> get readChapterIds; String get result;
 /// Create a copy of GetComicInfoState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $GetComicInfoStateCopyWith<GetComicInfoState> get copyWith => _$GetComicInfoStat
 @override
 bool operator ==(Object other) {
   final _this = this as GetComicInfoState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is GetComicInfoState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.allInfo, _this.allInfo) || other.allInfo == _this.allInfo)&&const DeepCollectionEquality().equals(other.comicInfo, _this.comicInfo)&&(identical(other.comicId, _this.comicId) || other.comicId == _this.comicId)&&(identical(other.result, _this.result) || other.result == _this.result));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is GetComicInfoState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.allInfo, _this.allInfo) || other.allInfo == _this.allInfo)&&const DeepCollectionEquality().equals(other.comicInfo, _this.comicInfo)&&(identical(other.comicId, _this.comicId) || other.comicId == _this.comicId)&&(identical(other.localCollected, _this.localCollected) || other.localCollected == _this.localCollected)&&const DeepCollectionEquality().equals(other.readChapterIds, _this.readChapterIds)&&(identical(other.result, _this.result) || other.result == _this.result));
 }
 
 
 @override
 int get hashCode {
   final _this = this as GetComicInfoState;
-  return Object.hash(runtimeType,_this.status,_this.allInfo,const DeepCollectionEquality().hash(_this.comicInfo),_this.comicId,_this.result);
+  return Object.hash(runtimeType,_this.status,_this.allInfo,const DeepCollectionEquality().hash(_this.comicInfo),_this.comicId,_this.localCollected,const DeepCollectionEquality().hash(_this.readChapterIds),_this.result);
 }
 
 @override
 String toString() {
   final _this = this as GetComicInfoState;
-  return 'GetComicInfoState(status: ${_this.status}, allInfo: ${_this.allInfo}, comicInfo: ${_this.comicInfo}, comicId: ${_this.comicId}, result: ${_this.result})';
+  return 'GetComicInfoState(status: ${_this.status}, allInfo: ${_this.allInfo}, comicInfo: ${_this.comicInfo}, comicId: ${_this.comicId}, localCollected: ${_this.localCollected}, readChapterIds: ${_this.readChapterIds}, result: ${_this.result})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $GetComicInfoStateCopyWith<$Res>  {
   factory $GetComicInfoStateCopyWith(GetComicInfoState value, $Res Function(GetComicInfoState) _then) = _$GetComicInfoStateCopyWithImpl;
 @useResult
 $Res call({
- GetComicInfoStatus status, NormalComicAllInfo? allInfo, dynamic comicInfo, String? comicId, String result
+ GetComicInfoStatus status, NormalComicAllInfo? allInfo, dynamic comicInfo, String? comicId, bool localCollected, Set<String> readChapterIds, String result
 });
 
 
@@ -68,13 +68,15 @@ class _$GetComicInfoStateCopyWithImpl<$Res>
 
 /// Create a copy of GetComicInfoState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? allInfo = freezed,Object? comicInfo = freezed,Object? comicId = freezed,Object? result = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? allInfo = freezed,Object? comicInfo = freezed,Object? comicId = freezed,Object? localCollected = null,Object? readChapterIds = null,Object? result = null,}) {
   return _then(GetComicInfoState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as GetComicInfoStatus,allInfo: freezed == allInfo ? _self.allInfo : allInfo // ignore: cast_nullable_to_non_nullable
 as NormalComicAllInfo?,comicInfo: freezed == comicInfo ? _self.comicInfo : comicInfo // ignore: cast_nullable_to_non_nullable
 as dynamic,comicId: freezed == comicId ? _self.comicId : comicId // ignore: cast_nullable_to_non_nullable
-as String?,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
+as String?,localCollected: null == localCollected ? _self.localCollected : localCollected // ignore: cast_nullable_to_non_nullable
+as bool,readChapterIds: null == readChapterIds ? _self.readChapterIds : readChapterIds // ignore: cast_nullable_to_non_nullable
+as Set<String>,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }
@@ -172,10 +174,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  String result)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  bool localCollected,  Set<String> readChapterIds,  String result)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _GetComicInfoState() when $default != null:
-return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.result);case _:
+return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.localCollected,_that.readChapterIds,_that.result);case _:
   return orElse();
 
 }
@@ -193,10 +195,10 @@ return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.r
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  String result)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  bool localCollected,  Set<String> readChapterIds,  String result)  $default,) {final _that = this;
 switch (_that) {
 case _GetComicInfoState():
-return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.result);case _:
+return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.localCollected,_that.readChapterIds,_that.result);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -213,10 +215,10 @@ return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.r
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  String result)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( GetComicInfoStatus status,  NormalComicAllInfo? allInfo,  dynamic comicInfo,  String? comicId,  bool localCollected,  Set<String> readChapterIds,  String result)?  $default,) {final _that = this;
 switch (_that) {
 case _GetComicInfoState() when $default != null:
-return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.result);case _:
+return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.localCollected,_that.readChapterIds,_that.result);case _:
   return null;
 
 }
@@ -228,13 +230,21 @@ return $default(_that.status,_that.allInfo,_that.comicInfo,_that.comicId,_that.r
 
 
 class _GetComicInfoState implements GetComicInfoState {
-  const _GetComicInfoState({this.status = GetComicInfoStatus.initial, this.allInfo, this.comicInfo, this.comicId, this.result = ''});
+  const _GetComicInfoState({this.status = GetComicInfoStatus.initial, this.allInfo, this.comicInfo, this.comicId, this.localCollected = false,  Set<String> readChapterIds = const <String>{}, this.result = ''}): _readChapterIds = readChapterIds;
   
 
 @override@JsonKey() final  GetComicInfoStatus status;
 @override final  NormalComicAllInfo? allInfo;
 @override final  dynamic comicInfo;
 @override final  String? comicId;
+@override@JsonKey() final  bool localCollected;
+ final  Set<String> _readChapterIds;
+@override@JsonKey() Set<String> get readChapterIds {
+  if (_readChapterIds is EqualUnmodifiableSetView) return _readChapterIds;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableSetView(_readChapterIds);
+}
+
 @override@JsonKey() final  String result;
 
 /// Create a copy of GetComicInfoState
@@ -247,18 +257,18 @@ _$GetComicInfoStateCopyWith<_GetComicInfoState> get copyWith => __$GetComicInfoS
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _GetComicInfoState&&(identical(other.status, status) || other.status == status)&&(identical(other.allInfo, allInfo) || other.allInfo == allInfo)&&const DeepCollectionEquality().equals(other.comicInfo, comicInfo)&&(identical(other.comicId, comicId) || other.comicId == comicId)&&(identical(other.result, result) || other.result == result));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _GetComicInfoState&&(identical(other.status, status) || other.status == status)&&(identical(other.allInfo, allInfo) || other.allInfo == allInfo)&&const DeepCollectionEquality().equals(other.comicInfo, comicInfo)&&(identical(other.comicId, comicId) || other.comicId == comicId)&&(identical(other.localCollected, localCollected) || other.localCollected == localCollected)&&const DeepCollectionEquality().equals(other.readChapterIds, _readChapterIds)&&(identical(other.result, result) || other.result == result));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,allInfo,const DeepCollectionEquality().hash(comicInfo),comicId,result);
+    return Object.hash(runtimeType,status,allInfo,const DeepCollectionEquality().hash(comicInfo),comicId,localCollected,const DeepCollectionEquality().hash(_readChapterIds),result);
 }
 
 @override
 String toString() {
-    return 'GetComicInfoState(status: $status, allInfo: $allInfo, comicInfo: $comicInfo, comicId: $comicId, result: $result)';
+    return 'GetComicInfoState(status: $status, allInfo: $allInfo, comicInfo: $comicInfo, comicId: $comicId, localCollected: $localCollected, readChapterIds: $readChapterIds, result: $result)';
 }
 
 
@@ -269,7 +279,7 @@ abstract mixin class _$GetComicInfoStateCopyWith<$Res> implements $GetComicInfoS
   factory _$GetComicInfoStateCopyWith(_GetComicInfoState value, $Res Function(_GetComicInfoState) _then) = __$GetComicInfoStateCopyWithImpl;
 @override @useResult
 $Res call({
- GetComicInfoStatus status, NormalComicAllInfo? allInfo, dynamic comicInfo, String? comicId, String result
+ GetComicInfoStatus status, NormalComicAllInfo? allInfo, dynamic comicInfo, String? comicId, bool localCollected, Set<String> readChapterIds, String result
 });
 
 
@@ -286,13 +296,15 @@ class __$GetComicInfoStateCopyWithImpl<$Res>
 
 /// Create a copy of GetComicInfoState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? allInfo = freezed,Object? comicInfo = freezed,Object? comicId = freezed,Object? result = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? allInfo = freezed,Object? comicInfo = freezed,Object? comicId = freezed,Object? localCollected = null,Object? readChapterIds = null,Object? result = null,}) {
   return _then(_GetComicInfoState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as GetComicInfoStatus,allInfo: freezed == allInfo ? _self.allInfo : allInfo // ignore: cast_nullable_to_non_nullable
 as NormalComicAllInfo?,comicInfo: freezed == comicInfo ? _self.comicInfo : comicInfo // ignore: cast_nullable_to_non_nullable
 as dynamic,comicId: freezed == comicId ? _self.comicId : comicId // ignore: cast_nullable_to_non_nullable
-as String?,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
+as String?,localCollected: null == localCollected ? _self.localCollected : localCollected // ignore: cast_nullable_to_non_nullable
+as bool,readChapterIds: null == readChapterIds ? _self._readChapterIds : readChapterIds // ignore: cast_nullable_to_non_nullable
+as Set<String>,result: null == result ? _self.result : result // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }

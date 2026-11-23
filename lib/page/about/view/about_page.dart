@@ -1,11 +1,11 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/utils/github_proxy.dart';
 
 import 'package:zephyr/service/update/check_update.dart';
+import 'package:zephyr/util/system/external_link.dart';
 
 // --- 风格常量 ---
 const Color kBgColor = Color(0xFF12121C); // --bg-color
@@ -562,7 +562,7 @@ class _AboutPageState extends State<AboutPage> {
 
   Future<void> _launchURL(String url) async {
     final Uri uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    if (!await openExternalUrl(uri)) {
       logger.e("无法打开链接: $url");
     }
   }

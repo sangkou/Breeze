@@ -131,10 +131,12 @@ class _DiscoverView extends StatelessWidget {
         onSettings: (title) => _openPluginSettings(context, plugin.uuid, title),
         onToggleEnabled: (enabled) => cubit.toggleEnabled(plugin.uuid, enabled),
         onRetry: () => cubit.retryLoadInfo(plugin.uuid),
+        // 卡片动作属于该卡片的插件，必须用它自己的 uuid 派发；
+        // 用全局默认插件（cubit.currentFrom）会把 A 的 fnPath 打到 B 的 bundle。
         onAction: (action) => DiscoverRouter.route(
           context,
-          action: DiscoverRouter.attachSource(action, plugin.uuid),
-          currentFrom: cubit.currentFrom,
+          action: action,
+          currentFrom: plugin.uuid,
         ),
       ),
     );

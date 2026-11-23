@@ -1,15 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
 import 'package:zephyr/page/comic_edit/method/comic_edit_service.dart';
 import 'package:zephyr/service/download/download_asset_store.dart';
 import 'package:zephyr/service/download/models/download_task_json.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/get_path.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/storage/get_path.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 
 import 'test_helper.dart';
 
@@ -93,7 +95,9 @@ List<Map<String, dynamic>> _chapters() => <Map<String, dynamic>>[
   },
 ];
 
-UnifiedComicDownload _insertRecord({Map<String, dynamic>? cover}) {
+Future<UnifiedComicDownload> _insertRecord({
+  Map<String, dynamic>? cover,
+}) async {
   final record = createTestDownload('test:c1')
     ..comicId = 'c1'
     ..title = 'Original'
@@ -102,19 +106,37 @@ UnifiedComicDownload _insertRecord({Map<String, dynamic>? cover}) {
   if (cover != null) {
     record.cover = jsonEncode(cover);
   }
-  objectbox.unifiedDownloadBox.put(record);
+  await database.downloads.put(record);
   return record;
 }
 
-UnifiedComicDownload _readRecord() =>
-    objectbox.unifiedDownloadBox.getAll().single;
+Future<UnifiedComicDownload> _readRecord() async =>
+    (await database.downloads.getAll()).single;
+
+Future<File> _writePng(String path) async {
+  final file = File(path);
+  await file.parent.create(recursive: true);
+  await file.writeAsBytes(base64Decode(_pngBase64));
+  return file;
+}
+
+Future<File> _writeZip(String path, Map<String, List<int>> entries) async {
+  final archive = Archive();
+  for (final entry in entries.entries) {
+    archive.addFile(ArchiveFile.bytes(entry.key, entry.value));
+  }
+  final file = File(path);
+  await file.parent.create(recursive: true);
+  await file.writeAsBytes(ZipEncoder().encodeBytes(archive));
+  return file;
+}
 
 void main() {
   late Directory downloadRoot;
 
   setUpAll(() async {
     await initRustLib(silent: true);
-    await TestObjectBoxHelper.setUpTestObjectBox();
+    await TestDatabaseHelper.setUpTestDatabase();
     downloadRoot = await Directory.systemTemp.createTemp(
       'breeze_edit_downloads_',
     );
@@ -126,23 +148,23 @@ void main() {
     if (await downloadRoot.exists()) {
       await downloadRoot.delete(recursive: true);
     }
-    await TestObjectBoxHelper.tearDownTestObjectBox();
+    await TestDatabaseHelper.tearDownTestDatabase();
   });
 
-  setUp(() {
-    objectbox.unifiedDownloadBox.removeAll();
-    objectbox.downloadTaskBox.removeAll();
-    objectbox.unifiedHistoryBox.removeAll();
-    objectbox.unifiedFavoriteBox.removeAll();
+  setUp(() async {
+    await database.downloads.removeAll();
+    await database.downloadTasks.removeAll();
+    await database.histories.removeAll();
+    await database.favorites.removeAll();
   });
 
   test('updateTitle 同时写生效值与 override', () async {
-    _insertRecord();
+    await _insertRecord();
 
     const service = ComicEditService();
     await service.updateTitle(from: 'test', comicId: 'c1', title: '  New  ');
 
-    final record = _readRecord();
+    final record = await _readRecord();
     expect(record.title, 'New');
     expect(record.titleOverride, 'New');
     final detail = jsonDecode(record.detailJson) as Map;
@@ -150,7 +172,7 @@ void main() {
   });
 
   test('renameChapter 同步 chapters / eps / 镜像', () async {
-    _insertRecord();
+    await _insertRecord();
 
     const service = ComicEditService();
     await service.renameChapter(
@@ -160,7 +182,7 @@ void main() {
       name: 'Renamed',
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     expect((chapters[0] as Map)['name'], 'Renamed');
     final detail = jsonDecode(record.detailJson) as Map;
@@ -170,12 +192,12 @@ void main() {
   });
 
   test('addChapter 追加本地空章节', () async {
-    _insertRecord();
+    await _insertRecord();
 
     const service = ComicEditService();
     await service.addChapter(from: 'test', comicId: 'c1', name: 'New');
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     expect(chapters.length, 3);
     final added = chapters.last as Map;
@@ -186,8 +208,264 @@ void main() {
     expect((detail['eps'] as List).length, 3);
   });
 
+  test('setChapterVolume 同步 chapters / eps / 镜像', () async {
+    await _insertRecord();
+
+    const service = ComicEditService();
+    await service.setChapterVolume(
+      from: 'test',
+      comicId: 'c1',
+      chapterId: 'ch1',
+      groupTitle: 'v01',
+    );
+
+    final record = await _readRecord();
+    final chapters = jsonDecode(record.chapters) as List;
+    expect((chapters[0] as Map)['groupTitle'], 'v01');
+    final detail = jsonDecode(record.detailJson) as Map;
+    expect(((detail['eps'] as List)[0] as Map)['groupTitle'], 'v01');
+    final mirror = (detail['extern'] as Map)['downloadChapters'] as List;
+    expect((mirror[0] as Map)['groupTitle'], 'v01');
+  });
+
+  test('importImagesToChapter 复制图片并追加到章节', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_images_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    final first = File(p.join(sourceDir.path, '01.png'));
+    final second = File(p.join(sourceDir.path, '02.png'));
+    await first.writeAsBytes(base64Decode(_pngBase64));
+    await second.writeAsBytes(base64Decode(_pngBase64));
+
+    const service = ComicEditService();
+    await service.importImagesToChapter(
+      from: 'test',
+      comicId: 'c1',
+      chapterId: 'ch1',
+      files: <File>[first, second],
+    );
+
+    final record = await _readRecord();
+    final chapters = jsonDecode(record.chapters) as List;
+    final images = (chapters[0] as Map)['images'] as List;
+    expect(images.length, 4);
+    expect((images[2] as Map)['path'], '01.png');
+    expect((images[3] as Map)['path'], '02.png');
+    expect((images[2] as Map)['id'], isNotEmpty);
+    expect((images[3] as Map)['id'], isNotEmpty);
+    expect((images[2] as Map)['id'], isNot((images[3] as Map)['id']));
+
+    final store = DownloadAssetStore(
+      from: 'test',
+      path: '01.png',
+      cartoonId: 'c1',
+      chapterId: '',
+      storageChapterId: 's1',
+      pictureType: PictureType.page,
+    );
+    expect(await store.findCanonicalDownload(), isNotNull);
+  });
+
+  test('importChaptersFromPath 从文件夹追加章节', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_chapters_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    for (final name in <String>['chA', 'chB']) {
+      final file = File(p.join(sourceDir.path, 'Original', name, '01.png'));
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(base64Decode(_pngBase64));
+    }
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: p.join(sourceDir.path, 'Original'),
+      isDirectory: true,
+    );
+
+    final record = await _readRecord();
+    final chapters = jsonDecode(record.chapters) as List;
+    expect(chapters.length, 4);
+    expect((chapters[2] as Map)['name'], 'chA');
+    expect((chapters[3] as Map)['name'], 'chB');
+    expect((chapters[2] as Map)['groupTitle'], isEmpty);
+    final detail = jsonDecode(record.detailJson) as Map;
+    expect((detail['eps'] as List).length, 4);
+  });
+
+  test('importChaptersFromPath 单章文件夹', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_single_chapter_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    await _writePng(p.join(sourceDir.path, '01.png'));
+    await _writePng(p.join(sourceDir.path, '02.png'));
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: sourceDir.path,
+      isDirectory: true,
+    );
+
+    final chapters = jsonDecode((await _readRecord()).chapters) as List;
+    expect(chapters.length, 3);
+    final added = chapters.last as Map;
+    expect(added['name'], p.basename(sourceDir.path));
+    expect(added['groupTitle'], isEmpty);
+    expect((added['images'] as List), hasLength(2));
+  });
+
+  test('importChaptersFromPath 整个漫画文件夹：多章 + 散图 + 封面', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_whole_comic_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    await _writePng(p.join(sourceDir.path, 'Original', 'cover.png'));
+    await _writePng(p.join(sourceDir.path, 'Original', 'loose.png'));
+    await _writePng(p.join(sourceDir.path, 'Original', 'ch1', '01.png'));
+    await _writePng(p.join(sourceDir.path, 'Original', 'ch2', '01.png'));
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: p.join(sourceDir.path, 'Original'),
+      isDirectory: true,
+    );
+
+    final chapters = jsonDecode((await _readRecord()).chapters) as List;
+    expect(chapters.length, 5);
+    final added = chapters.sublist(2).cast<Map>();
+    expect(added.map((chapter) => chapter['name']), <String>[
+      'ch1',
+      'ch2',
+      '未分类',
+    ]);
+    expect(added.every((chapter) => chapter['groupTitle'] == ''), isTrue);
+    expect((added[2]['images'] as List).single['path'], 'loose.png');
+  });
+
+  test('importChaptersFromPath 分卷文件夹', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_volume_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    await _writePng(p.join(sourceDir.path, 'Original', 'v01', 'ch1', '01.png'));
+    await _writePng(p.join(sourceDir.path, 'Original', 'v01', 'ch2', '01.png'));
+    await _writePng(p.join(sourceDir.path, 'Original', 'v02', 'ch1', '01.png'));
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: p.join(sourceDir.path, 'Original'),
+      isDirectory: true,
+    );
+
+    final chapters = jsonDecode((await _readRecord()).chapters) as List;
+    expect(chapters.length, 5);
+    final added = chapters.sublist(2).cast<Map>();
+    expect(
+      added.map((chapter) => '${chapter['groupTitle']}/${chapter['name']}'),
+      <String>['v01/ch1', 'v01/ch2', 'v02/ch1'],
+    );
+  });
+
+  test('importChaptersFromPath 单个压缩包', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_archive_chapter_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    final archive = await _writeZip(p.join(sourceDir.path, 'book.cbz'), {
+      '01.png': base64Decode(_pngBase64),
+      '02.png': base64Decode(_pngBase64),
+    });
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: archive.path,
+      isDirectory: false,
+    );
+
+    final chapters = jsonDecode((await _readRecord()).chapters) as List;
+    expect(chapters.length, 3);
+    final added = chapters.last as Map;
+    expect(added['name'], 'book');
+    expect((added['images'] as List), hasLength(2));
+  });
+
+  test('importChaptersFromPath 分卷压缩包', () async {
+    await _insertRecord();
+    final sourceDir = await Directory.systemTemp.createTemp(
+      'breeze_edit_volume_archives_',
+    );
+    addTearDown(() async {
+      if (await sourceDir.exists()) {
+        await sourceDir.delete(recursive: true);
+      }
+    });
+    await _writeZip(p.join(sourceDir.path, 'v01', 'c001.cbz'), {
+      '01.png': base64Decode(_pngBase64),
+      '02.png': base64Decode(_pngBase64),
+    });
+    await _writeZip(p.join(sourceDir.path, 'v01', 'c002.cbz'), {
+      '01.png': base64Decode(_pngBase64),
+    });
+
+    const service = ComicEditService();
+    await service.importChaptersFromPath(
+      from: 'test',
+      comicId: 'c1',
+      sourcePath: p.join(sourceDir.path, 'v01'),
+      isDirectory: true,
+    );
+
+    final chapters = jsonDecode((await _readRecord()).chapters) as List;
+    expect(chapters.length, 4);
+    final added = chapters.sublist(2).cast<Map>();
+    expect(added.map((chapter) => chapter['name']), <String>['c001', 'c002']);
+    expect(added.every((chapter) => chapter['groupTitle'] == 'v01'), isTrue);
+  });
+
   test('reorderImages 只改元数据顺序', () async {
-    _insertRecord();
+    await _insertRecord();
 
     const service = ComicEditService();
     await service.reorderImages(
@@ -197,7 +475,7 @@ void main() {
       orderedPaths: <String>['p2', 'p1'],
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     final images = (chapters[0] as Map)['images'] as List;
     expect(images.map((image) => (image as Map)['path']).toList(), <String>[
@@ -207,7 +485,7 @@ void main() {
   });
 
   test('reorderChapters 重编号并同步 eps', () async {
-    _insertRecord();
+    await _insertRecord();
 
     const service = ComicEditService();
     await service.reorderChapters(
@@ -216,7 +494,7 @@ void main() {
       orderedChapterIds: <String>['ch2', 'ch1'],
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     expect((chapters[0] as Map)['logicalKey'], 'ch2');
     expect((chapters[0] as Map)['order'], 1);
@@ -228,7 +506,7 @@ void main() {
   });
 
   test('deleteImages 删除元数据与文件', () async {
-    _insertRecord();
+    await _insertRecord();
     final store = DownloadAssetStore(
       from: 'test',
       path: 'p1',
@@ -249,7 +527,7 @@ void main() {
       imagePaths: <String>['p1'],
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     final images = (chapters[0] as Map)['images'] as List;
     expect(images.length, 1);
@@ -258,15 +536,15 @@ void main() {
   });
 
   test('标题/封面同步到历史与本地收藏', () async {
-    _insertRecord();
+    await _insertRecord();
     final history = createTestHistory('test:c1')
       ..title = 'Old'
       ..cover = 'old';
     final favorite = createTestFavorite('test:c1')
       ..title = 'Old'
       ..cover = 'old';
-    objectbox.unifiedHistoryBox.put(history);
-    objectbox.unifiedFavoriteBox.put(favorite);
+    await database.histories.put(history);
+    await database.favorites.put(favorite);
 
     final source = File('${downloadRoot.path}/cover_source.png');
     await source.writeAsBytes(base64Decode(_pngBase64));
@@ -275,9 +553,9 @@ void main() {
     await service.updateTitle(from: 'test', comicId: 'c1', title: 'New');
     await service.updateCover(from: 'test', comicId: 'c1', source: source);
 
-    final record = _readRecord();
-    final updatedHistory = objectbox.unifiedHistoryBox.getAll().single;
-    final updatedFavorite = objectbox.unifiedFavoriteBox.getAll().single;
+    final record = await _readRecord();
+    final updatedHistory = (await database.histories.getAll()).single;
+    final updatedFavorite = (await database.favorites.getAll()).single;
     expect(updatedHistory.title, 'New');
     expect(updatedHistory.cover, record.cover);
     expect(updatedFavorite.title, 'New');
@@ -285,7 +563,7 @@ void main() {
   });
 
   test('updateCoverFromImage 复制章节图片为封面', () async {
-    _insertRecord();
+    await _insertRecord();
     final imageStore = DownloadAssetStore(
       from: 'test',
       path: 'p1',
@@ -306,7 +584,7 @@ void main() {
       imagePath: 'p1',
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final cover = jsonDecode(record.cover) as Map;
     expect(cover['path'], startsWith('cover_'));
     final coverStore = DownloadAssetStore(
@@ -322,7 +600,7 @@ void main() {
   });
 
   test('有未完成章节任务时禁止编辑', () async {
-    _insertRecord();
+    await _insertRecord();
     final task = DownloadTask()
       ..comicId = 'c1'
       ..comicName = 'Test'
@@ -340,18 +618,18 @@ void main() {
         order: 1,
       ),
     );
-    objectbox.downloadTaskBox.put(task);
+    await database.downloadTasks.put(task);
 
     const service = ComicEditService();
-    expect(service.hasIncompleteDownload('test', 'c1'), isTrue);
-    expect(
-      () => service.updateTitle(from: 'test', comicId: 'c1', title: 'X'),
+    expect(await service.hasIncompleteDownload('test', 'c1'), isTrue);
+    await expectLater(
+      service.updateTitle(from: 'test', comicId: 'c1', title: 'X'),
       throwsA(isA<ComicEditLockedException>()),
     );
   });
 
   test('updateCover 写本地封面并保留 override', () async {
-    _insertRecord(
+    await _insertRecord(
       cover: <String, dynamic>{
         'id': 'cover1',
         'url': 'https://example.com/cover.jpg',
@@ -366,7 +644,7 @@ void main() {
     const service = ComicEditService();
     await service.updateCover(from: 'test', comicId: 'c1', source: source);
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final cover = jsonDecode(record.cover) as Map;
     expect(cover['path'], startsWith('cover_'));
     expect(cover['url'], '');
@@ -389,7 +667,7 @@ void main() {
   });
 
   test('moveImages 搬文件并更新两章元数据', () async {
-    _insertRecord();
+    await _insertRecord();
     final sourceStore = DownloadAssetStore(
       from: 'test',
       path: 'p1',
@@ -411,7 +689,7 @@ void main() {
       imagePaths: <String>['p1'],
     );
 
-    final record = _readRecord();
+    final record = await _readRecord();
     final chapters = jsonDecode(record.chapters) as List;
     expect(((chapters[0] as Map)['images'] as List).length, 1);
     expect(((chapters[1] as Map)['images'] as List).length, 1);

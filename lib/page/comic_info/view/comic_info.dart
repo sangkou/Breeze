@@ -6,8 +6,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_sticky_header/flutter_sticky_header.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path/path.dart' as p;
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/config/router/router.dart';
 import 'package:zephyr/config/router/router.gr.dart' show ComicEditRoute;
@@ -23,10 +24,10 @@ import 'package:zephyr/service/reader/comic_read_chapter_repository.dart';
 import 'package:zephyr/type/enum.dart';
 import 'package:zephyr/type/pipe.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
-import 'package:zephyr/util/error_filter.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/util/json/json_value.dart';
-import 'package:zephyr/util/permission.dart';
+import 'package:zephyr/util/system/permission.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 import 'package:zephyr/widgets/comic_entry/models/models.dart';
 import 'package:zephyr/widgets/error_view.dart';
@@ -59,18 +60,18 @@ class ComicInfoPage extends StatelessWidget {
     final resolvedFrom = from.trim();
     return MultiBlocProvider(
       providers: [
-        BlocProvider(
-          create: (_) => GetComicInfoBloc()
-            ..add(
-              GetComicInfoEvent(
-                comicId: comicId,
-                from: resolvedFrom,
-                type: type,
-                extern: extern,
-              ),
-            ),
-        ),
         BlocProvider(create: (_) => StringSelectCubit()),
+        BlocProvider(
+          create: (context) =>
+              GetComicInfoBloc(context.read<StringSelectCubit>())..add(
+                GetComicInfoEvent(
+                  comicId: comicId,
+                  from: resolvedFrom,
+                  type: type,
+                  extern: extern,
+                ),
+              ),
+        ),
       ],
       child: _ComicInfo(
         comicId: comicId,
@@ -124,9 +125,9 @@ class _ComicInfoState extends State<_ComicInfo>
   final Set<String> _collapsedGroups = {};
   String _collapsedForComic = '';
   NormalComicAllInfo? _currentInfo;
-  // 已读章节 id 集合：与当前漫画绑定，阅读器写库后经 repository 变更流刷新。
+  // 已读章节 id 集合：与当前漫画绑定，首次由详情 bloc 随详情返回；
+  // 阅读器写库后经 repository 变更流刷新。
   Set<String> _readChapterIds = const {};
-  String _readChapterKey = '';
   StreamSubscription<String>? _readChapterSubscription;
   // 追更线上总数同步护栏：记住已同步到的章节数。数字变大才再同步一次，
   // 下拉刷新后长出的新话不会被吞；下载入口的 comicInfoDyn 是本地快照
@@ -194,27 +195,16 @@ class _ComicInfoState extends State<_ComicInfo>
     _reloadReadChapters();
   }
 
-  void _reloadReadChapters() {
-    final ids = ComicReadChapterRepository.instance.readChapterIds(
+  Future<void> _reloadReadChapters() async {
+    final key = _readChapterComicKey;
+    final ids = await ComicReadChapterRepository.instance.readChapterIds(
       source: widget.from,
       comicId: _comicId,
     );
-    if (!mounted) return;
+    if (!mounted || key != _readChapterComicKey) return;
     setState(() {
-      _readChapterKey = _readChapterComicKey;
       _readChapterIds = ids;
     });
-  }
-
-  /// 首次进入/切换漫画时同步加载已读集合；build 期只读，不触发 setState。
-  void _loadReadChaptersIfNeeded() {
-    final key = _readChapterComicKey;
-    if (key == _readChapterKey) return;
-    _readChapterKey = key;
-    _readChapterIds = ComicReadChapterRepository.instance.readChapterIds(
-      source: widget.from,
-      comicId: _comicId,
-    );
   }
 
   @override
@@ -356,15 +346,10 @@ class _ComicInfoState extends State<_ComicInfo>
                   comicInfoDyn = state.comicInfo;
                   _currentInfo = state.allInfo;
                   _comicId = state.comicId ?? _comicId;
-                  _loadReadChaptersIfNeeded();
+                  // 已读集合与历史摘要随详情返回；这里只同步，不再异步查库。
+                  _readChapterIds = state.readChapterIds;
                   _syncFollowFromOnlineDetail(state.comicInfo, state.allInfo!);
-                  initHistory(
-                    context,
-                    _comicId,
-                    widget.from,
-                    chapters: state.allInfo!.eps,
-                  );
-                  return _infoView(state.allInfo!);
+                  return _infoView(state.allInfo!, state.localCollected);
               }
             },
           ),
@@ -411,13 +396,13 @@ class _ComicInfoState extends State<_ComicInfo>
     );
   }
 
-  Widget _infoView(NormalComicAllInfo normalComicAllInfo) {
+  Widget _infoView(NormalComicAllInfo normalComicAllInfo, bool localCollected) {
     final comicInfo = normalComicAllInfo.comicInfo;
     _title = comicInfo.title;
-    final clickCoverToStartReading = context
-        .watch<GlobalSettingCubit>()
-        .state
-        .clickCoverToStartReading;
+    final globalSetting = context.watch<GlobalSettingCubit>().state;
+    final clickCoverToStartReading = globalSetting.clickCoverToStartReading;
+    final showOperationActions =
+        globalSetting.comicDetailSetting.hasVisibleActions;
 
     if (!_loadingComplete) {
       WidgetsBinding.instance.addPostFrameCallback(
@@ -506,14 +491,17 @@ class _ComicInfoState extends State<_ComicInfo>
                                 )
                               : null,
                         ),
-                        _buildDivider(context),
-                        ComicOperationWidget(
-                          normalInfo: normalComicAllInfo,
-                          from: widget.from,
-                          collectionTargetId: widget.collectionTargetId,
-                          collectionTargetName: widget.collectionTargetName,
-                          comicInfo: comicInfoDyn,
-                        ),
+                        if (showOperationActions) ...[
+                          _buildDivider(context),
+                          ComicOperationWidget(
+                            normalInfo: normalComicAllInfo,
+                            from: widget.from,
+                            collectionTargetId: widget.collectionTargetId,
+                            collectionTargetName: widget.collectionTargetName,
+                            comicInfo: comicInfoDyn,
+                            initialCollected: localCollected,
+                          ),
+                        ],
                         if (comicInfo.metadata.isNotEmpty ||
                             comicInfo.description.trim().isNotEmpty) ...[
                           _buildDivider(context),
@@ -683,7 +671,7 @@ class _ComicInfoState extends State<_ComicInfo>
   }
 
   Future<ExportType?> _pickExportType() async {
-    if (Platform.isIOS) return ExportType.zip;
+    if (Platform.isIOS || isOhos) return ExportType.zip;
 
     return showDialog<ExportType>(
       context: context,
@@ -713,8 +701,8 @@ class _ComicInfoState extends State<_ComicInfo>
   Future<String?> _pickExportDirectory() async => getDirectoryPath();
 
   Future<String?> _resolveExportDirectory() async {
-    // iOS 无目录选择器，导出到缓存后通过系统分享面板保存
-    if (Platform.isIOS) {
+    // iOS / OHOS 无可用目录选择器，导出到缓存后再系统保存/分享。
+    if (Platform.isIOS || isOhos) {
       return getCachePath();
     }
     final customPath = globalSetting.customExportPath.trim();
@@ -777,10 +765,11 @@ class _ComicInfoState extends State<_ComicInfo>
   // 编辑逻辑
   Future<void> _handleEdit() async {
     const service = ComicEditService();
-    if (service.hasIncompleteDownload(widget.from, _comicId)) {
+    if (await service.hasIncompleteDownload(widget.from, _comicId)) {
       showErrorToast(t.comicEdit.lockedMessage);
       return;
     }
+    if (!mounted) return;
 
     await context.pushRoute(
       ComicEditRoute(from: widget.from, comicId: _comicId),
@@ -810,6 +799,20 @@ class _ComicInfoState extends State<_ComicInfo>
       final zipFileName = _buildZipFileName();
       final targetZipPath = p.join(exportDir, zipFileName);
 
+      if (isOhos) {
+        final saved = await saveOhosFileToPicker(
+          targetZipPath,
+          suggestedName: zipFileName,
+        );
+        if (saved) {
+          showSuccessToast(t.comicInfo.exportSuccess);
+          try {
+            await File(targetZipPath).delete();
+          } catch (_) {}
+        }
+        return;
+      }
+
       if (Platform.isIOS) {
         // 不写入 cacheZipPath：open_file 在分享面板弹出后即返回，
         // finally 里删除会导致用户还没保存文件就被删掉。
@@ -827,7 +830,7 @@ class _ComicInfoState extends State<_ComicInfo>
         );
 
         // 弹出系统分享面板，用户可「存储到文件」
-        await OpenFile.open(iosZipPath);
+        await openFileWithSystem(iosZipPath);
         showSuccessToast(t.comicInfo.exportSuccess);
         _logExportPath(iosZipPath);
         return;
@@ -929,7 +932,10 @@ class _ComicInfoState extends State<_ComicInfo>
           return item.toJson();
         })
         .where((json) => json.isNotEmpty)
-        .map(UnifiedComicListItem.fromJson)
+        .map(
+          (json) =>
+              UnifiedComicListItem.fromJson(json).copyWith(source: widget.from),
+        )
         .toList();
   }
 

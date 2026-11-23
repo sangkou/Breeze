@@ -1,15 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
+import 'package:zephyr/page/bookshelf/method/local_comic_import.dart';
+import 'package:zephyr/page/bookshelf/method/local_comic_scanner.dart';
 import 'package:zephyr/page/comic_edit/method/comic_edit_document.dart';
 import 'package:zephyr/page/comic_info/method/export_comic.dart'
     show detectImageExtension;
 import 'package:zephyr/service/download/download_asset_store.dart';
-import 'package:zephyr/service/download/download_task_repository.dart';
+import 'package:zephyr/service/download/models/download_task_json.dart';
 import 'package:zephyr/type/enum.dart';
 
 /// 该漫画还有未完成的下载任务，按当前策略禁止编辑。
@@ -27,14 +29,27 @@ class ComicEditLockedException implements Exception {
 class ComicEditService {
   const ComicEditService();
 
-  UnifiedComicDownload? findRecord(String from, String comicId) {
-    return const DownloadTaskRepository().findDownloadRecord(from, comicId);
+  Future<UnifiedComicDownload?> findRecord(String from, String comicId) async {
+    try {
+      return await database.downloads.getByKey(
+        buildDownloadTaskKey(from, comicId),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
-  bool hasIncompleteDownload(String from, String comicId) {
-    return const DownloadTaskRepository()
-        .findIncompleteByComic(from: from, comicId: comicId)
-        .isNotEmpty;
+  Future<bool> hasIncompleteDownload(String from, String comicId) async {
+    final normalizedFrom = from.trim();
+    final normalizedComicId = comicId.trim();
+    if (normalizedFrom.isEmpty || normalizedComicId.isEmpty) return false;
+    final tasks = await database.downloadTasks.listByComicId(normalizedComicId);
+    for (final task in tasks) {
+      if (task.isCompleted && !task.isDownloading) continue;
+      final payload = _readPayload(task);
+      if (payload == null || payload.from.trim() == normalizedFrom) return true;
+    }
+    return false;
   }
 
   ComicEditDocument loadDocument(UnifiedComicDownload record) {
@@ -49,13 +64,13 @@ class ComicEditService {
     required String comicId,
     required String title,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final value = title.trim();
     if (value.isEmpty) {
       throw ArgumentError('title is empty');
     }
     final doc = loadDocument(record).setTitle(value);
-    _persist(record, doc, titleOverride: value);
+    await _persist(record, doc, titleOverride: value);
     return doc;
   }
 
@@ -64,7 +79,7 @@ class ComicEditService {
     required String comicId,
     required File source,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     if (!await source.exists()) {
       throw StateError('cover source not found: ${source.path}');
     }
@@ -82,7 +97,7 @@ class ComicEditService {
     required String chapterId,
     required String imagePath,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final doc = loadDocument(record);
     final chapter = _findChapter(doc.chapterMaps, chapterId);
     if (chapter == null) {
@@ -149,7 +164,7 @@ class ComicEditService {
 
     final next = doc.setCover(cover);
     try {
-      _persist(record, next, coverOverride: jsonEncode(cover));
+      await _persist(record, next, coverOverride: jsonEncode(cover));
     } catch (_) {
       await _deleteIfExists(File(targetPath));
       rethrow;
@@ -170,13 +185,13 @@ class ComicEditService {
     required String chapterId,
     required String name,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final value = name.trim();
     if (value.isEmpty) {
       throw ArgumentError('chapter name is empty');
     }
     final doc = loadDocument(record).renameChapter(chapterId, value);
-    _persist(record, doc);
+    await _persist(record, doc);
     return doc;
   }
 
@@ -185,15 +200,175 @@ class ComicEditService {
     required String comicId,
     required String name,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final value = name.trim();
     if (value.isEmpty) {
       throw ArgumentError('chapter name is empty');
     }
     final id = 'local:${const Uuid().v4()}';
     final doc = loadDocument(record).addChapter(id: id, name: value);
-    _persist(record, doc);
+    await _persist(record, doc);
     return doc;
+  }
+
+  Future<ComicEditDocument> setChapterVolume({
+    required String from,
+    required String comicId,
+    required String chapterId,
+    required String groupTitle,
+  }) async {
+    final record = await _requireEditable(from, comicId);
+    final doc = loadDocument(record).setChapterVolume(chapterId, groupTitle);
+    await _persist(record, doc);
+    return doc;
+  }
+
+  /// 把本地图片追加到指定章节。
+  Future<ComicEditDocument> importImagesToChapter({
+    required String from,
+    required String comicId,
+    required String chapterId,
+    required List<File> files,
+  }) async {
+    final record = await _requireEditable(from, comicId);
+    var doc = loadDocument(record);
+    final chapter = _findChapter(doc.chapterMaps, chapterId);
+    if (chapter == null) {
+      throw StateError('chapter not found: $chapterId');
+    }
+    final storageId = comicEditChapterStorageId(chapter);
+    final usedPaths = <String>{
+      ...((chapter['images'] as List?) ?? const <dynamic>[])
+          .whereType<Map>()
+          .map((image) => image['path']?.toString() ?? '')
+          .where((path) => path.isNotEmpty),
+    };
+    final created = <String>[];
+    final images = <Map<String, dynamic>>[];
+    try {
+      for (final file in files) {
+        if (!await file.exists()) continue;
+        if (!LocalComicScanner.isImageFile(file.path)) continue;
+        final originalName = p.basename(file.path);
+        final storedName = uniqueLocalImageName(originalName, usedPaths);
+        final store = DownloadAssetStore(
+          from: from,
+          path: storedName,
+          cartoonId: comicId,
+          chapterId: '',
+          storageChapterId: storageId,
+          pictureType: PictureType.page,
+        );
+        final target = await store.canonicalDownloadPath();
+        await store.copyFileAtomically(
+          sourcePath: file.path,
+          finalPath: target,
+        );
+        created.add(target);
+        images.add(<String, dynamic>{
+          'id': 'local:${const Uuid().v4()}',
+          'name': originalName,
+          'path': storedName,
+          'url': '',
+          'extern': <String, dynamic>{'local': true},
+        });
+      }
+      if (images.isEmpty) return doc;
+      doc = doc.appendImages(chapterId, images);
+      await _persist(record, doc);
+      return doc;
+    } catch (_) {
+      for (final path in created) {
+        await _deleteIfExists(File(path));
+      }
+      rethrow;
+    }
+  }
+
+  /// 从文件夹或压缩包向现有漫画追加章节。
+  Future<ComicEditDocument> importChaptersFromPath({
+    required String from,
+    required String comicId,
+    required String sourcePath,
+    required bool isDirectory,
+    String? cleanupRoot,
+    String uncategorizedName = '未分类',
+  }) async {
+    final record = await _requireEditable(from, comicId);
+    // 选中的是卷目录时，卷名要成为章节的 groupTitle；选中的是整个漫画
+    // 目录（目录名与漫画标题一致）时不要多套一层同名分组。
+    final selectedName = isDirectory ? p.basename(sourcePath) : '';
+    final rootGroupTitle =
+        isDirectory &&
+            selectedName.toLowerCase() != record.title.trim().toLowerCase()
+        ? selectedName
+        : '';
+    final session = await prepareLocalComicScan(
+      sourcePath: sourcePath,
+      isDirectory: isDirectory,
+      cleanupRoot: cleanupRoot,
+      uncategorizedName: uncategorizedName,
+      rootGroupTitle: rootGroupTitle,
+    );
+    final created = <String>[];
+    try {
+      final newChapters = <Map<String, dynamic>>[];
+      for (final chapter in session.scan.chapters) {
+        final chapterId = 'local:${const Uuid().v4()}';
+        final storageId = chapterId;
+        final usedNames = <String>{};
+        final images = <Map<String, dynamic>>[];
+        for (final image in chapter.images) {
+          final originalName = p.basename(image.path);
+          final storedName = uniqueLocalImageName(originalName, usedNames);
+          final store = DownloadAssetStore(
+            from: from,
+            path: storedName,
+            cartoonId: comicId,
+            chapterId: '',
+            storageChapterId: storageId,
+            pictureType: PictureType.page,
+          );
+          final target = await store.canonicalDownloadPath();
+          await store.copyFileAtomically(
+            sourcePath: image.path,
+            finalPath: target,
+          );
+          created.add(target);
+          images.add(<String, dynamic>{
+            'id': 'local:${const Uuid().v4()}',
+            'name': originalName,
+            'path': storedName,
+            'url': '',
+            'extern': <String, dynamic>{'local': true},
+          });
+        }
+        newChapters.add(<String, dynamic>{
+          'id': chapterId,
+          'name': chapter.name,
+          'order': 0,
+          'logicalKey': chapterId,
+          'taskChapterId': '',
+          'storageChapterId': storageId,
+          'groupTitle': chapter.groupTitle,
+          'images': images,
+        });
+      }
+
+      if (newChapters.isEmpty) {
+        throw StateError('no comic images found');
+      }
+      final doc = loadDocument(record).addChapters(newChapters);
+      await _persist(record, doc);
+      return doc;
+    } catch (_) {
+      for (final path in created) {
+        await _deleteIfExists(File(path));
+      }
+      rethrow;
+    } finally {
+      await session.dispose();
+    }
   }
 
   Future<ComicEditDocument> reorderChapters({
@@ -201,9 +376,9 @@ class ComicEditService {
     required String comicId,
     required List<String> orderedChapterIds,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final doc = loadDocument(record).reorderChapters(orderedChapterIds);
-    _persist(record, doc);
+    await _persist(record, doc);
     return doc;
   }
 
@@ -213,7 +388,7 @@ class ComicEditService {
     required String chapterId,
     required List<String> imagePaths,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final doc = loadDocument(record);
     final chapter = _findChapter(doc.chapterMaps, chapterId);
     if (chapter == null) {
@@ -229,7 +404,7 @@ class ComicEditService {
     if (removed.isEmpty) return doc;
 
     final next = doc.removeImages(chapterId, removed);
-    _persist(record, next);
+    await _persist(record, next);
 
     for (final path in removed) {
       final store = DownloadAssetStore(
@@ -254,9 +429,9 @@ class ComicEditService {
     required String chapterId,
     required List<String> orderedPaths,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     final doc = loadDocument(record).reorderImages(chapterId, orderedPaths);
-    _persist(record, doc);
+    await _persist(record, doc);
     return doc;
   }
 
@@ -268,7 +443,7 @@ class ComicEditService {
     required List<String> imagePaths,
     int? targetIndex,
   }) async {
-    final record = _requireEditable(from, comicId);
+    final record = await _requireEditable(from, comicId);
     var doc = loadDocument(record);
     final chapters = doc.chapterMaps;
     final source = _findChapter(chapters, sourceChapterId);
@@ -363,7 +538,7 @@ class ComicEditService {
         imagePaths: finalPaths,
         targetIndex: targetIndex,
       );
-      _persist(record, doc);
+      await _persist(record, doc);
     } catch (_) {
       for (final path in createdTargets) {
         await _deleteIfExists(File(path));
@@ -377,23 +552,39 @@ class ComicEditService {
     return doc;
   }
 
-  UnifiedComicDownload _requireEditable(String from, String comicId) {
-    final record = findRecord(from, comicId);
+  Future<UnifiedComicDownload> _requireEditable(
+    String from,
+    String comicId,
+  ) async {
+    final record = await findRecord(from, comicId);
     if (record == null) {
       throw StateError('download record not found: $from:$comicId');
     }
-    if (hasIncompleteDownload(from, comicId)) {
+    if (await hasIncompleteDownload(from, comicId)) {
       throw const ComicEditLockedException();
     }
     return record;
   }
 
-  void _persist(
+  DownloadTaskJson? _readPayload(DownloadTask task) {
+    try {
+      return task.taskInfo;
+    } catch (error, stackTrace) {
+      logger.e(
+        '读取下载任务 payload 失败: taskId=${task.id}',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  Future<void> _persist(
     UnifiedComicDownload record,
     ComicEditDocument doc, {
     String? titleOverride,
     String? coverOverride,
-  }) {
+  }) async {
     record
       ..chapters = doc.toChaptersJson()
       ..detailJson = doc.toDetailJson()
@@ -408,48 +599,37 @@ class ComicEditService {
         ..cover = jsonEncode(doc.cover)
         ..coverOverride = coverOverride;
     }
-    objectbox.unifiedDownloadBox.put(record);
+    await database.downloads.put(record);
     if (titleOverride != null || coverOverride != null) {
-      _syncLinkedRecords(record, doc);
+      await _syncLinkedRecords(record, doc);
     }
   }
 
   /// 自定义标题/封面同步到历史与本地收藏，避免书架各页各显示一套。
-  void _syncLinkedRecords(UnifiedComicDownload record, ComicEditDocument doc) {
+  Future<void> _syncLinkedRecords(
+    UnifiedComicDownload record,
+    ComicEditDocument doc,
+  ) async {
     final now = DateTime.now().toUtc();
     final title = doc.title;
     final cover = jsonEncode(doc.cover);
 
-    final historyQuery = objectbox.unifiedHistoryBox
-        .query(UnifiedComicHistory_.uniqueKey.equals(record.uniqueKey))
-        .build();
-    try {
-      final history = historyQuery.findFirst();
-      if (history != null && !history.deleted) {
-        history
-          ..title = title
-          ..cover = cover
-          ..updatedAt = now;
-        objectbox.unifiedHistoryBox.put(history);
-      }
-    } finally {
-      historyQuery.close();
+    final history = await database.histories.getByKey(record.uniqueKey);
+    if (history != null && !history.deleted) {
+      history
+        ..title = title
+        ..cover = cover
+        ..updatedAt = now;
+      await database.histories.put(history);
     }
 
-    final favoriteQuery = objectbox.unifiedFavoriteBox
-        .query(UnifiedComicFavorite_.uniqueKey.equals(record.uniqueKey))
-        .build();
-    try {
-      final favorite = favoriteQuery.findFirst();
-      if (favorite != null && !favorite.deleted) {
-        favorite
-          ..title = title
-          ..cover = cover
-          ..updatedAt = now;
-        objectbox.unifiedFavoriteBox.put(favorite);
-      }
-    } finally {
-      favoriteQuery.close();
+    final favorite = await database.favorites.getByKey(record.uniqueKey);
+    if (favorite != null && !favorite.deleted) {
+      favorite
+        ..title = title
+        ..cover = cover
+        ..updatedAt = now;
+      await database.favorites.put(favorite);
     }
   }
 

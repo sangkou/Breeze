@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as file_path;
 import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/main.dart';
 
 /// 资产在本地磁盘上的候选位置。

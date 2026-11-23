@@ -8,12 +8,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Debug
 import android.os.Bundle
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterShellArgs
@@ -27,6 +31,17 @@ class MainActivity: FlutterFragmentActivity() {
         private const val IMPELLER_CHANNEL = "impeller_config"
         private const val PREFS_NAME = "flutter_engine_config"
         private const val KEY_FORCE_ENABLE_IMPELLER = "force_enable_impeller"
+        private const val COPY_BUFFER_SIZE = 256 * 1024
+        private const val COPY_PROGRESS_LOG_STEP = 50L * 1024 * 1024
+        private val INVALID_FILE_NAME_CHARS = Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]")
+
+        // 内存采集会做 binder / /proc 读取，统一串行跑在单个后台线程上，
+        // 不占用 Android 主线程（MethodChannel 回调默认在主线程执行）。
+        // 进程级共享，随进程存活，不需要随 Activity 销毁。
+        private val memoryMonitorExecutor: ExecutorService =
+            Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "breeze-memory-monitor").apply { isDaemon = true }
+            }
 
         init {
             System.loadLibrary("windcore")
@@ -43,11 +58,15 @@ class MainActivity: FlutterFragmentActivity() {
     private val REALSR_CHANNEL = "realsr_super_resolution"
     private val FILE_PICKER_CHANNEL = "com.zephyr.breeze/file_picker"
     private val REQUEST_CODE_PICK_BACKUP_ZIP = 1001
+    private val REQUEST_CODE_PICK_COMIC_ARCHIVE = 1002
+    private val REQUEST_CODE_PICK_COMIC_DIRECTORY = 1003
 
     private var volumeKeyInterceptionEnabled = false
     private var volumeEventSink: EventChannel.EventSink? = null
     private var pendingFilePickerResult: MethodChannel.Result? = null
     private var pendingFilePickerDestPath: String? = null
+    private var pendingComicPickerResult: MethodChannel.Result? = null
+    private var pendingComicPickerDestDir: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         initRustlsPlatformVerifier(applicationContext)
@@ -78,18 +97,16 @@ class MainActivity: FlutterFragmentActivity() {
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "getMemoryInfo" -> {
+                "getMemoryInfo" -> memoryMonitorExecutor.execute {
                     try {
-                        val memoryInfo = getMemoryInfo()
-                        result.success(memoryInfo)
+                        result.success(getMemoryInfo())
                     } catch (e: Exception) {
                         result.error("MEMORY_ERROR", "Failed to get memory info", e.message)
                     }
                 }
-                "getDartMemoryInfo" -> {
+                "getDartMemoryInfo" -> memoryMonitorExecutor.execute {
                     try {
-                        val dartMemoryInfo = getDartMemoryInfo()
-                        result.success(dartMemoryInfo)
+                        result.success(getDartMemoryInfo())
                     } catch (e: Exception) {
                         result.error("DART_MEMORY_ERROR", "Failed to get Dart memory info", e.message)
                     }
@@ -199,6 +216,26 @@ class MainActivity: FlutterFragmentActivity() {
                         openBackupZipPicker()
                     }
                 }
+                "pickComicArchive" -> {
+                    val destDir = call.argument<String>("destDir")
+                    if (destDir == null) {
+                        result.error("INVALID_ARGS", "destDir is required", null)
+                    } else {
+                        pendingComicPickerResult = result
+                        pendingComicPickerDestDir = destDir
+                        openComicArchivePicker()
+                    }
+                }
+                "pickComicDirectory" -> {
+                    val destDir = call.argument<String>("destDir")
+                    if (destDir == null) {
+                        result.error("INVALID_ARGS", "destDir is required", null)
+                    } else {
+                        pendingComicPickerResult = result
+                        pendingComicPickerDestDir = destDir
+                        openComicDirectoryPicker()
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -220,18 +257,151 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    private fun copyUriToFile(uri: Uri, destFile: File) {
+    private fun openComicArchivePicker() {
+        Log.i("FilePicker", "打开外部漫画压缩包选择器")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf(
+                    "application/zip",
+                    "application/x-zip-compressed",
+                    "application/x-rar-compressed",
+                    "application/vnd.rar",
+                    "application/x-7z-compressed",
+                    "application/x-tar",
+                    "application/octet-stream"
+                )
+            )
+        }
+        try {
+            startActivityForResult(intent, REQUEST_CODE_PICK_COMIC_ARCHIVE)
+        } catch (e: Exception) {
+            Log.e("FilePicker", "打开压缩包选择器失败", e)
+            pendingComicPickerResult?.error("PICKER_ERROR", e.message, e.stackTraceToString())
+            pendingComicPickerResult = null
+            pendingComicPickerDestDir = null
+        }
+    }
+
+    private fun openComicDirectoryPicker() {
+        Log.i("FilePicker", "打开外部漫画文件夹选择器")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+            )
+        }
+        try {
+            startActivityForResult(intent, REQUEST_CODE_PICK_COMIC_DIRECTORY)
+        } catch (e: Exception) {
+            Log.e("FilePicker", "打开文件夹选择器失败", e)
+            pendingComicPickerResult?.error("PICKER_ERROR", e.message, e.stackTraceToString())
+            pendingComicPickerResult = null
+            pendingComicPickerDestDir = null
+        }
+    }
+
+    private fun copyComicArchive(uri: Uri, destDir: String): Map<String, String> {
+        val targetDir = File(destDir)
+        targetDir.mkdirs()
+        val displayName = sanitizeFileName(queryDisplayName(uri) ?: "comic.cbz")
+        val target = File(targetDir, displayName)
+        copyUriToFile(uri, target, ByteArray(COPY_BUFFER_SIZE))
+        return mapOf(
+            "path" to target.absolutePath,
+            "cleanupRoot" to targetDir.absolutePath
+        )
+    }
+
+    private fun copyComicDirectory(treeUri: Uri, destDir: String): Map<String, String> {
+        val targetDir = File(destDir)
+        targetDir.mkdirs()
+        val rootDocumentId = DocumentsContract.getTreeDocumentId(treeUri)
+        val fallbackName = rootDocumentId
+            .substringAfterLast(':')
+            .substringAfterLast('/')
+            .ifBlank { "comic" }
+        val rootName = sanitizeFileName(
+            queryDisplayName(DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocumentId))
+                ?: fallbackName
+        )
+        val target = File(targetDir, rootName)
+        target.mkdirs()
+        // 整个目录共用一块缓冲区，避免每个文件都分配 1 MiB。
+        copyDocumentChildren(treeUri, rootDocumentId, target, ByteArray(COPY_BUFFER_SIZE))
+        return mapOf(
+            "path" to target.absolutePath,
+            "cleanupRoot" to targetDir.absolutePath
+        )
+    }
+
+    private fun copyDocumentChildren(
+        treeUri: Uri,
+        parentDocumentId: String,
+        targetDir: File,
+        buffer: ByteArray,
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocumentId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val documentId = cursor.getString(0)
+                val name = sanitizeFileName(cursor.getString(1) ?: "unnamed")
+                val mimeType = cursor.getString(2)
+                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    val childDir = File(targetDir, name)
+                    childDir.mkdirs()
+                    copyDocumentChildren(treeUri, documentId, childDir, buffer)
+                } else {
+                    copyUriToFile(childUri, File(targetDir, name), buffer)
+                }
+            }
+        } ?: throw IllegalStateException("Cannot list document children for $childrenUri")
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0)
+            }
+        }
+        return uri.lastPathSegment
+    }
+
+    private fun sanitizeFileName(raw: String): String {
+        val cleaned = raw
+            .replace(INVALID_FILE_NAME_CHARS, "_")
+            .trim()
+            .trimEnd('.')
+        return if (cleaned.isEmpty() || cleaned == "." || cleaned == "..") "unnamed" else cleaned
+    }
+
+    private fun copyUriToFile(uri: Uri, destFile: File, buffer: ByteArray) {
         destFile.parentFile?.mkdirs()
         contentResolver.openInputStream(uri)?.use { input ->
             destFile.outputStream().use { output ->
-                val buffer = ByteArray(1024 * 1024)
                 var bytesRead: Int
                 var totalCopied = 0L
+                var nextProgressLog = COPY_PROGRESS_LOG_STEP
                 while (input.read(buffer).also { bytesRead = it } > 0) {
                     output.write(buffer, 0, bytesRead)
                     totalCopied += bytesRead
-                    if (totalCopied % (50 * 1024 * 1024) == 0L) {
+                    if (totalCopied >= nextProgressLog) {
                         Log.i("FilePicker", "已拷贝 ${totalCopied / 1024 / 1024} MB")
+                        nextProgressLog += COPY_PROGRESS_LOG_STEP
                     }
                 }
             }
@@ -251,7 +421,7 @@ class MainActivity: FlutterFragmentActivity() {
                 val uri = data.data!!
                 Thread {
                     try {
-                        copyUriToFile(uri, File(destPath))
+                        copyUriToFile(uri, File(destPath), ByteArray(COPY_BUFFER_SIZE))
                         Log.i("FilePicker", "拷贝完成：$destPath")
                         runOnUiThread { result?.success(destPath) }
                     } catch (e: Exception) {
@@ -261,6 +431,38 @@ class MainActivity: FlutterFragmentActivity() {
                 }.start()
             } else {
                 Log.i("FilePicker", "用户取消或失败")
+                result?.success(null)
+            }
+            return
+        }
+
+        if (requestCode == REQUEST_CODE_PICK_COMIC_ARCHIVE ||
+            requestCode == REQUEST_CODE_PICK_COMIC_DIRECTORY
+        ) {
+            Log.i("FilePicker", "onActivityResult comic: requestCode=$requestCode, resultCode=$resultCode")
+            val result = pendingComicPickerResult
+            val destDir = pendingComicPickerDestDir
+            pendingComicPickerResult = null
+            pendingComicPickerDestDir = null
+
+            if (resultCode == Activity.RESULT_OK && data?.data != null && destDir != null) {
+                val uri = data.data!!
+                Thread {
+                    try {
+                        val payload = if (requestCode == REQUEST_CODE_PICK_COMIC_ARCHIVE) {
+                            copyComicArchive(uri, destDir)
+                        } else {
+                            copyComicDirectory(uri, destDir)
+                        }
+                        Log.i("FilePicker", "外部漫画拷贝完成：$payload")
+                        runOnUiThread { result?.success(payload) }
+                    } catch (e: Exception) {
+                        Log.e("FilePicker", "外部漫画拷贝失败", e)
+                        runOnUiThread { result?.error("COPY_ERROR", e.message, e.stackTraceToString()) }
+                    }
+                }.start()
+            } else {
+                Log.i("FilePicker", "用户取消外部漫画选择")
                 result?.success(null)
             }
         }
@@ -318,10 +520,10 @@ class MainActivity: FlutterFragmentActivity() {
         val freeMemory = runtime.freeMemory()
         val usedMemory = totalMemory - freeMemory
         
-        // 获取进程内存信息
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val processMemoryInfo = activityManager.getProcessMemoryInfo(intArrayOf(android.os.Process.myPid()))
-        val pmi = if (processMemoryInfo.isNotEmpty()) processMemoryInfo[0] else null
+        // 进程级 PSS：优先读 /proc/self/smaps_rollup（内核聚合，单文件），
+        // Android 8.x 等老内核没有该文件时回退到 ActivityManager。
+        val (processPss, processPrivateDirty, processSharedDirty) =
+            readSelfSmapsRollup() ?: readProcessMemoryStatsViaActivityManager()
         
         // 获取 Native 堆信息
         val nativeHeapSize = Debug.getNativeHeapSize()
@@ -340,9 +542,65 @@ class MainActivity: FlutterFragmentActivity() {
             "nativeHeapSize" to nativeHeapSize,
             "nativeHeapAllocated" to nativeHeapAllocated,
             "nativeHeapFree" to nativeHeapFree,
-            "processPss" to (pmi?.totalPss?.toLong()?.times(1024) ?: 0L), // Convert KB to bytes
-            "processPrivateDirty" to (pmi?.totalPrivateDirty?.toLong()?.times(1024) ?: 0L),
-            "processSharedDirty" to (pmi?.totalSharedDirty?.toLong()?.times(1024) ?: 0L)
+            "processPss" to processPss, // 字节
+            "processPrivateDirty" to processPrivateDirty,
+            "processSharedDirty" to processSharedDirty
+        )
+    }
+
+    /// 读取 /proc/self/smaps_rollup 的进程内存统计（pss, privateDirty, sharedDirty，单位字节）。
+    ///
+    /// 相比 ActivityManager.getProcessMemoryInfo，省掉一次 binder 进 system_server
+    /// 的全量 smaps 解析（本进程有 Flutter / Impeller / Rust 等大量映射，开销明显）。
+    /// 内核 4.14（Android 9）起才有这个文件，更老的系统返回 null 交给调用方回退。
+    private fun readSelfSmapsRollup(): Triple<Long, Long, Long>? {
+        val file = File("/proc/self/smaps_rollup")
+        if (!file.exists()) {
+            return null
+        }
+        var pss = -1L
+        var privateDirty = -1L
+        var sharedDirty = -1L
+        try {
+            file.useLines { lines ->
+                for (line in lines) {
+                    when {
+                        line.startsWith("Pss:") ->
+                            pss = smapsKilobytes(line) ?: pss
+                        line.startsWith("Private_Dirty:") ->
+                            privateDirty = smapsKilobytes(line) ?: privateDirty
+                        line.startsWith("Shared_Dirty:") ->
+                            sharedDirty = smapsKilobytes(line) ?: sharedDirty
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            return null
+        }
+        if (pss < 0 || privateDirty < 0 || sharedDirty < 0) {
+            return null
+        }
+        return Triple(pss, privateDirty, sharedDirty)
+    }
+
+    /// 解析 smaps 行（如 "Pss:  1234 kB"）里的 kB 数值并转成字节。
+    private fun smapsKilobytes(line: String): Long? =
+        line.substringAfter(':', "")
+            .trim()
+            .substringBefore(' ')
+            .toLongOrNull()
+            ?.times(1024)
+
+    /// 老内核的回退路径：ActivityManager 会把本进程 smaps 全量解析一遍，较慢。
+    private fun readProcessMemoryStatsViaActivityManager(): Triple<Long, Long, Long> {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val pmi = activityManager
+            .getProcessMemoryInfo(intArrayOf(android.os.Process.myPid()))
+            .firstOrNull()
+        return Triple(
+            pmi?.totalPss?.toLong()?.times(1024) ?: 0L,
+            pmi?.totalPrivateDirty?.toLong()?.times(1024) ?: 0L,
+            pmi?.totalSharedDirty?.toLong()?.times(1024) ?: 0L
         )
     }
 

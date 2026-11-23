@@ -31,9 +31,10 @@ class MemoryOverlayWidget extends StatefulWidget {
 }
 
 class _MemoryOverlayWidgetState extends State<MemoryOverlayWidget>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Timer? _timer;
   SimpleMemoryInfo? _memoryInfo;
+  bool _updateInFlight = false;
   Offset _position = const Offset(10, 100);
   bool _isDragging = false;
   bool _isExpanded = false;
@@ -43,6 +44,7 @@ class _MemoryOverlayWidgetState extends State<MemoryOverlayWidget>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -78,7 +80,28 @@ class _MemoryOverlayWidgetState extends State<MemoryOverlayWidget>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (!widget.enabled) {
+      return;
+    }
+    // Dart 定时器在后台照样触发，退到后台就停掉每秒一次的平台内存采集。
+    // 只在真正不可见（hidden/paused/detached）时停，桌面端失焦（inactive）
+    // 仍继续刷新，避免悬浮窗停在旧数据上。
+    final inBackground =
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached;
+    if (inBackground) {
+      _stopMonitoring();
+    } else if (_timer == null) {
+      _startMonitoring();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopMonitoring();
     _removeOverlay();
     _animationController.dispose();
@@ -113,6 +136,11 @@ class _MemoryOverlayWidgetState extends State<MemoryOverlayWidget>
   }
 
   Future<void> _updateMemoryInfo() async {
+    // 采集是异步的，慢的时候不要和下一次定时采样叠在一起。
+    if (_updateInFlight) {
+      return;
+    }
+    _updateInFlight = true;
     try {
       final info = await SimpleMemoryMonitor.getMemoryInfo();
       if (mounted) {
@@ -122,6 +150,8 @@ class _MemoryOverlayWidgetState extends State<MemoryOverlayWidget>
     } catch (e) {
       logger.e(e);
       // 忽略错误
+    } finally {
+      _updateInFlight = false;
     }
   }
 

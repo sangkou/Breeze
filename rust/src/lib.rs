@@ -1,5 +1,6 @@
 pub mod api;
 pub mod compressed;
+pub mod db;
 
 /// 全局 HTTP 客户端配置是进程级共享状态。
 ///

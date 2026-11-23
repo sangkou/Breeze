@@ -2,7 +2,7 @@ import 'package:zephyr/object_box/model.dart';
 import 'package:zephyr/page/search_result/models/unified_plugin_search.dart';
 import 'package:zephyr/util/json/json_sanitize.dart';
 import 'package:zephyr/util/json/json_value.dart';
-import 'package:zephyr/util/path_util.dart';
+import 'package:zephyr/util/storage/path_util.dart';
 
 import 'package:zephyr/widgets/comic_entry/models/unified_comic_list_item.dart';
 
@@ -12,6 +12,7 @@ UnifiedComicListItem unifiedComicFromPluginSearchItem(
 ) {
   return _requireUnifiedPluginItem(
     item.data,
+    source: source,
     context: 'search:$source:${item.id}',
   );
 }
@@ -22,6 +23,7 @@ UnifiedComicListItem unifiedComicFromPluginListMap(
 }) {
   return _requireUnifiedPluginItem(
     item,
+    source: source,
     context: 'list:$source:${item['id']?.toString() ?? ''}',
   );
 }
@@ -63,8 +65,11 @@ UnifiedComicListItem unifiedComicFromUnifiedHistory(UnifiedComicHistory comic) {
 }
 
 UnifiedComicListItem unifiedComicFromUnifiedDownload(
-  UnifiedComicDownload comic,
-) {
+  UnifiedComicDownload comic, {
+
+  /// 书架只需要列表字段；`chapters` 里带全部图片信息，跳过可省大量解析。
+  bool includeRaw = true,
+}) {
   final cover = _coverFromStored(comic.source, comic.comicId, comic.cover);
   final extern = Map<String, dynamic>.from(cover.extern);
   return UnifiedComicListItem(
@@ -83,7 +88,7 @@ UnifiedComicListItem unifiedComicFromUnifiedDownload(
       extern: extern,
     ),
     metadata: _metadataFromString(comic.metadata),
-    raw: _buildDownloadRaw(comic),
+    raw: includeRaw ? _buildDownloadRaw(comic) : const <String, dynamic>{},
     extern: const <String, dynamic>{},
   );
 }
@@ -238,10 +243,11 @@ int _viewCountFromTitleMeta(String titleMetaJson) {
 
 UnifiedComicListItem _requireUnifiedPluginItem(
   Map<String, dynamic> item, {
+  required String source,
   required String context,
 }) {
   if (item['cover'] is! Map || item['metadata'] is! List) {
     throw StateError('插件返回非统一漫画结构: $context');
   }
-  return UnifiedComicListItem.fromJson(item);
+  return UnifiedComicListItem.fromJson(item).copyWith(source: source.trim());
 }

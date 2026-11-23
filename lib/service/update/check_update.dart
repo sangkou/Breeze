@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:auto_route/auto_route.dart';
@@ -6,18 +7,19 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:markdown_widget/widget/markdown_block.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:open_file/open_file.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_guard/permission_guard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/utils/github_proxy.dart';
 import 'package:zephyr/service/update/json/github_release_json.dart';
 import 'package:zephyr/type/pipe.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
+import 'package:zephyr/util/system/external_link.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 /// 「一周内不再提醒」静默期截止时间的存储键（毫秒时间戳）。
@@ -89,6 +91,15 @@ Future<bool> snoozeUpdateReminderForWeek() async {
 
 Future<String> getAppVersion() async {
   String version = 'Unknown';
+
+  if (isOhos) {
+    try {
+      version = await getOhosAppVersion() ?? version;
+    } catch (e, stackTrace) {
+      logger.e(e, stackTrace: stackTrace);
+    }
+    return version;
+  }
 
   try {
     final PackageInfo packageInfo = await PackageInfo.fromPlatform();
@@ -203,7 +214,7 @@ Future<void> installApk(String apkUrl) async {
         await File(apkFilePath).writeAsBytes(response.body);
       }
 
-      OpenFile.open(apkFilePath);
+      unawaited(openFileWithSystem(apkFilePath));
     } catch (e) {
       logger.e(e);
       showErrorToast(t.update.apkDownloadFailed);
@@ -262,7 +273,14 @@ Future<void> checkUpdate(BuildContext context) async {
   DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
   String arch = t.update.unknownArch;
   try {
-    if (Platform.isAndroid) {
+    if (isOhos) {
+      final info = await getOhosDeviceInfo();
+      final abis = info?.abis ?? const <String>[];
+      if (abis.isNotEmpty) {
+        arch = abis.first;
+        logger.d(arch);
+      }
+    } else if (Platform.isAndroid) {
       AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
       List<String> abis = androidInfo.supportedAbis;
       if (abis.isNotEmpty) {
@@ -317,7 +335,7 @@ Future<void> checkUpdate(BuildContext context) async {
           TextButton(
             child: Text(t.update.goToGitHub),
             onPressed: () {
-              launchUrl(Uri.parse(releasePageUrl));
+              openExternalUrl(Uri.parse(releasePageUrl));
               context.pop();
             },
           ),

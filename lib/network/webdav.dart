@@ -1,14 +1,12 @@
+import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/network/sync/sync_service.dart';
 import 'package:zephyr/network/sync/webdav_sync_service.dart';
-import 'package:zephyr/main.dart';
 
 Future<void> testWebDavServer() async {
-  final settings = objectbox.userSettingBox.get(1)!.globalSetting;
-  final service = WebDavSyncService(settings);
+  final service = WebDavSyncService(globalSetting);
   await service.testConnection();
 }
 
 Future<void> syncWithWebDav() async {
-  final settings = objectbox.userSettingBox.get(1)!.globalSetting;
-  await autoSync(settings);
+  await autoSync(globalSetting);
 }

@@ -19,17 +19,14 @@ static ANTI_OBFUSCATION_SEMAPHORE: Semaphore =
 
 #[frb(init)]
 pub fn init_app() {
-    if cfg!(debug_assertions) {
-        println!("Debug model");
-    } else {
-        println!("Release model");
-    }
+    // 每个 isolate 调用一次 RustLib.init()，这里不要再打印任何东西。
     INIT_ONCE.call_once(|| {
         crate::api::user_utils::setup_default_user_utils();
         let mut config = current_http_client_config();
         config.allow_private_network = true;
         configure_http_client(config)
             .expect(&rquickjs_playground::tr!("failed-to-update-http-config"));
+        crate::qjs::init_rust_functions().expect("register Rust bridge routes");
     });
 }
 

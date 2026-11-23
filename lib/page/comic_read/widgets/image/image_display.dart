@@ -228,6 +228,11 @@ class _ImageDisplayState extends State<ImageDisplay> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
+        // cacheWidth 的单位是物理像素；这里手动乘 devicePixelRatio，
+        // 等价于 Flutter 3.50 的 useLogicalCacheSize（OHOS fork 3.47 没有该参数）。
+        final decodeWidth = width.isFinite && width >= 1
+            ? (width * MediaQuery.devicePixelRatioOf(context)).ceil()
+            : null;
 
         if (_aspectRatio != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -259,10 +264,10 @@ class _ImageDisplayState extends State<ImageDisplay> {
           child: Image.file(
             File(widget.imagePath),
             width: width,
-            // 按屏幕密度解码（useLogicalCacheSize 内部乘 devicePixelRatio），
-            // 避免超大扫描图整张解码进 ImageCache 挤占内存。
-            cacheWidth: width.isFinite && width >= 1 ? width.round() : null,
-            useLogicalCacheSize: true,
+            // 按屏幕物理像素解码，避免高 DPI 设备上按逻辑宽度解码后放大发虚；
+            // ResizeImage 默认 allowUpscaling=false，小图不会被放大，超大扫描图
+            // 也只解码到屏幕像素宽度，不会整张原图进 ImageCache。
+            cacheWidth: decodeWidth,
             fit: isColumn ? BoxFit.fill : BoxFit.contain,
             alignment: widget.imageAlignment,
             gaplessPlayback: true,

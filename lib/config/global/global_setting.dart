@@ -1,5 +1,8 @@
 // 全局设置
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:material_ui/material_ui.dart';
@@ -22,6 +25,9 @@ enum ReaderTapPageTurnMode { fullScreen, leftHand, rightHand }
 
 enum SyncServiceType { none, webdav, s3 }
 
+/// 自动同步间隔单位。
+enum SyncIntervalUnit { second, minute, hour }
+
 /// 代理协议类型。
 enum ProxyType { http, socks5 }
 
@@ -43,6 +49,32 @@ extension SyncServiceTypeExtension on SyncServiceType {
         return 'WebDAV';
       case SyncServiceType.s3:
         return 'S3';
+    }
+  }
+}
+
+extension SyncIntervalUnitExtension on SyncIntervalUnit {
+  String get label {
+    switch (this) {
+      case SyncIntervalUnit.second:
+        return t.settings.syncIntervalUnitSecond;
+      case SyncIntervalUnit.minute:
+        return t.settings.syncIntervalUnitMinute;
+      case SyncIntervalUnit.hour:
+        return t.settings.syncIntervalUnitHour;
+    }
+  }
+
+  /// 把设置值换算成定时器间隔；0/负数按 1 处理，避免忙循环。
+  Duration durationFor(int value) {
+    final safeValue = value < 1 ? 1 : value;
+    switch (this) {
+      case SyncIntervalUnit.second:
+        return Duration(seconds: safeValue);
+      case SyncIntervalUnit.minute:
+        return Duration(minutes: safeValue);
+      case SyncIntervalUnit.hour:
+        return Duration(hours: safeValue);
     }
   }
 }
@@ -124,8 +156,16 @@ extension ReadSettingStateBackgroundColor on ReadSettingState {
   }
 }
 
-GlobalSettingState get globalSetting {
-  return objectbox.userSettingBox.get(1)!.globalSetting;
+GlobalSettingState _globalSettingState = const GlobalSettingState();
+
+GlobalSettingState get globalSetting => _globalSettingState;
+
+/// 滚动条显示开关的平台默认值：桌面端显示，移动端隐藏。
+bool get defaultShowScrollbar {
+  if (kIsWeb) return true;
+  return defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
 }
 
 @freezed
@@ -142,6 +182,9 @@ abstract class GlobalSettingState with _$GlobalSettingState {
     @Default(true) bool showPluginHome,
     @Default(true) bool showPluginCloudFavorite,
     @Default(true) bool showSearchBookmark,
+    // null = 跟随平台默认值（桌面端显示、移动端隐藏），用户切换后写入显式值。
+    bool? showScrollbar,
+    @Default(false) bool alwaysShowScrollbar,
     @Default(SyncSettingState()) SyncSettingState syncSetting,
     @Default([]) List<String> maskedKeywords,
     @Default(true) bool socks5ProxyEnabled,
@@ -181,10 +224,17 @@ abstract class GlobalSettingState with _$GlobalSettingState {
     @Default(ChineseConvertMode.off) ChineseConvertMode chineseConvertMode,
     @Default(BookshelfSettingState()) BookshelfSettingState bookshelfSetting,
     @Default(EInkSettingState()) EInkSettingState eInkSetting,
+    @Default(ComicDetailSettingState())
+    ComicDetailSettingState comicDetailSetting,
   }) = _GlobalSettingState;
 
   factory GlobalSettingState.fromJson(Map<String, dynamic> json) =>
       _$GlobalSettingStateFromJson(json);
+}
+
+extension GlobalSettingStateScrollbarX on GlobalSettingState {
+  /// 实际是否显示滚动条；用户未切换过时按平台默认值。
+  bool get effectiveShowScrollbar => showScrollbar ?? defaultShowScrollbar;
 }
 
 @freezed
@@ -279,6 +329,10 @@ abstract class SyncSettingState with _$SyncSettingState {
     @Default(false) bool syncSettings,
     @Default(false) bool syncPlugins,
     @Default(true) bool autoSync,
+
+    /// 自动同步间隔数值 + 单位，默认 5 分钟。
+    @Default(5) int syncInterval,
+    @Default(SyncIntervalUnit.minute) SyncIntervalUnit syncIntervalUnit,
     @Default(true) bool syncNotify,
     @Default(0) int settingsSyncTime,
   }) = _SyncSettingState;
@@ -323,6 +377,7 @@ abstract class ReadSettingState with _$ReadSettingState {
     @Default(72) int volumeKeyPageTurnDistancePercent,
     @Default(false) bool doubleTapZoom,
     @Default(false) bool doubleTapOpenMenu,
+    @Default(false) bool zoomedContinuousScroll,
     @Default(true) bool pageInfoShowPage,
     @Default(true) bool pageInfoShowNetwork,
     @Default(false) bool pageInfoShowBattery,
@@ -401,6 +456,32 @@ abstract class BookshelfSettingState with _$BookshelfSettingState {
       _$BookshelfSettingStateFromJson(json);
 }
 
+/// 漫画详情页显示样式。
+///
+/// 功能按钮区固定有四个按钮，各自独立控制显隐；隐藏只影响展示，
+/// 不影响收藏、点赞等实际状态与自动逻辑。
+@freezed
+abstract class ComicDetailSettingState with _$ComicDetailSettingState {
+  const factory ComicDetailSettingState({
+    @Default(true) bool showLikeAction,
+    @Default(true) bool showCommentAction,
+    @Default(true) bool showLocalCollectAction,
+    @Default(true) bool showCloudCollectAction,
+  }) = _ComicDetailSettingState;
+
+  factory ComicDetailSettingState.fromJson(Map<String, dynamic> json) =>
+      _$ComicDetailSettingStateFromJson(json);
+}
+
+extension ComicDetailSettingStateX on ComicDetailSettingState {
+  /// 四个功能按钮是否至少显示一个；全关时详情页整块操作区（含分隔线）不占位。
+  bool get hasVisibleActions =>
+      showLikeAction ||
+      showCommentAction ||
+      showLocalCollectAction ||
+      showCloudCollectAction;
+}
+
 class GlobalSettingCubit extends Cubit<GlobalSettingState> {
   // 构造函数，传入由 freezed 生成的默认 state
   GlobalSettingCubit() : super(const GlobalSettingState());
@@ -411,7 +492,9 @@ class GlobalSettingCubit extends Cubit<GlobalSettingState> {
   late final Color _defaultSeedColor = colorThemeList[6].color;
 
   Future<void> initBox() async {
-    final persisted = objectbox.userSettingBox.get(1)!.globalSetting;
+    final userSetting = await database.userSettings.getOrCreate();
+    final persisted = userSetting.globalSetting;
+    _globalSettingState = persisted;
     _syncRuntimeFlags(persisted);
     emit(persisted);
   }
@@ -469,6 +552,16 @@ class GlobalSettingCubit extends Cubit<GlobalSettingState> {
   ) {
     updateState(
       (current) => current.copyWith(eInkSetting: updates(current.eInkSetting)),
+    );
+  }
+
+  void updateComicDetailSetting(
+    ComicDetailSettingState Function(ComicDetailSettingState current) updates,
+  ) {
+    updateState(
+      (current) => current.copyWith(
+        comicDetailSetting: updates(current.comicDetailSetting),
+      ),
     );
   }
 
@@ -567,15 +660,19 @@ class GlobalSettingCubit extends Cubit<GlobalSettingState> {
   }
 
   void _updateDataBase(GlobalSettingState state) {
-    // logger.d(state.toJson());
-    final userBox = objectbox.userSettingBox;
-    var dbSettings = userBox.get(1)!;
+    _globalSettingState = state;
+    unawaited(_persistGlobalSetting(state));
+  }
+
+  Future<void> _persistGlobalSetting(GlobalSettingState state) async {
+    final userSetting = await database.userSettings.get();
+    if (userSetting == null) return;
     var toSave = state;
-    final existingVersion = dbSettings.globalSetting.compatibleVersion.trim();
+    final existingVersion = userSetting.globalSetting.compatibleVersion.trim();
     if (toSave.compatibleVersion.trim().isEmpty && existingVersion.isNotEmpty) {
       toSave = toSave.copyWith(compatibleVersion: existingVersion);
     }
-    dbSettings.globalSetting = toSave;
-    userBox.put(dbSettings);
+    userSetting.globalSetting = toSave;
+    await database.userSettings.put(userSetting);
   }
 }

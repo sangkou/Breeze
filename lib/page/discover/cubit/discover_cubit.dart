@@ -2,10 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/cubit/plugin_registry_cubit.dart';
-import 'package:zephyr/plugin/plugin_registry_service.dart';
 import 'package:zephyr/i18n/strings.g.dart';
-import 'package:zephyr/widgets/toast.dart';
 import 'package:zephyr/main.dart';
+import 'package:zephyr/plugin/local_comic_plugin.dart';
+import 'package:zephyr/plugin/plugin_registry_service.dart';
+import 'package:zephyr/widgets/toast.dart';
 
 /// Discover 页状态：插件列表 + 全局 info 快照引用 + 开关状态。
 ///
@@ -97,7 +98,9 @@ class DiscoverCubit extends Cubit<DiscoverState> {
     Map<String, PluginRuntimeState> all,
   ) {
     final sorted = service.sortPlugins(
-      all.values.where((plugin) => !plugin.isDeleted),
+      all.values.where(
+        (plugin) => !plugin.isDeleted && !isLocalComicPluginId(plugin.uuid),
+      ),
     );
     return {for (final plugin in sorted) plugin.uuid: plugin};
   }
@@ -151,11 +154,13 @@ class DiscoverCubit extends Cubit<DiscoverState> {
     emit(state.copyWith(togglingUuids: Set<String>.from(_togglingUuids)));
   }
 
-  /// 初始加载：全量刷新 getInfo（后台 warmup，成功即热切换）。
-  void load() => _service.warmupPluginInfos();
+  /// 初始加载：info 已由 service.init() 从 DB 水合；这里只补历史缺失项。
+  void load() {
+    unawaited(_service.loadMissingPluginInfos());
+  }
 
-  /// 下拉刷新：同 load。
-  Future<void> reload() => _service.warmupPluginInfos();
+  /// 下拉刷新：同样只补缺失/损坏的 getInfo，不再全量执行插件脚本。
+  Future<void> reload() => _service.loadMissingPluginInfos();
 
   /// 重试指定插件：后台拉取该插件 getInfo，成功即热切换。
   Future<void> retryLoadInfo(String uuid) =>

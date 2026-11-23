@@ -61,7 +61,7 @@
 - `ComicFolder` 合并键：`syncId`
 - `ComicLink` 合并键：`${comicUniqueKey}|${folderSyncId}|${typeData}`
 
-每个设备安装时生成一个 `syncDeviceId`（UUIDv4）。`versionVectorJson` 是一个计数器映射：
+每个设备安装时生成一个 `syncDeviceId`（UUIDv4），持久化在 SharedPreferences。主 isolate 启动时通过 `ensureSyncDeviceId()` 读/建，并写入 Rust 侧的进程级缓存；同步合并运行在 `compute` 隔离区，Dart 静态变量不跨 isolate，因此由合并任务显式携带该 ID，其他后台 isolate 可直接同步读取 Rust 缓存（`sync_device_id()`），避免在隔离区异步访问平台通道。`versionVectorJson` 是一个计数器映射：
 
 ```json
 {"deviceA": 3, "deviceB": 2}

@@ -2,14 +2,15 @@ import 'package:bloc/bloc.dart';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:stream_transform/stream_transform.dart';
-import 'package:worker_manager/worker_manager.dart';
+import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/page/search/cubit/search_cubit.dart';
 import 'package:zephyr/page/search_result/method/get_plugin_result.dart';
 import 'package:zephyr/page/search_result/models/bloc_state.dart';
 import 'package:zephyr/type/pipe.dart';
-import 'package:zephyr/util/error_filter.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/async/worker_pool.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 
 import 'package:zephyr/page/search_result/models/models.dart';
@@ -203,8 +204,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
   }
 
   (List<String>, String) _loadMaskedKeywords() {
-    final settings = objectbox.userSettingBox.get(1)!.globalSetting;
-    final maskedKeywords = settings.maskedKeywords
+    final maskedKeywords = globalSetting.maskedKeywords
         .where((keyword) => keyword.trim().isNotEmpty)
         .map((keyword) => _normalizeMaskedText(keyword.trim()))
         .where((keyword) => keyword.isNotEmpty)
@@ -252,9 +252,7 @@ class SearchBloc extends Bloc<SearchEvent, SearchState> {
     };
 
     try {
-      final filtered = await workerManager.execute<List<Map<String, dynamic>>>(
-        () => filterShieldedComicJsonList(payload),
-      );
+      final filtered = await runInIsolate(filterShieldedComicJsonList, payload);
       return filtered.map(ComicNumber.fromJson).toList();
     } catch (e, s) {
       logger.w('search shield filter fallback to main isolate', error: e);

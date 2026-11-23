@@ -23,6 +23,7 @@ class ColumnModeWidget extends StatefulWidget {
   final String from;
   final ScrollPhysics? parentPhysics;
   final bool disableScroll;
+  final bool preserveScrollPhysics;
   final ReaderVolumeController volumeController;
   final ValueChanged<bool> onUserScrollActiveChanged;
   final ValueChanged<int> onGlobalSlotChanged;
@@ -39,6 +40,7 @@ class ColumnModeWidget extends StatefulWidget {
     required this.from,
     this.parentPhysics,
     this.disableScroll = false,
+    this.preserveScrollPhysics = false,
     required this.volumeController,
     required this.onUserScrollActiveChanged,
     required this.onGlobalSlotChanged,
@@ -57,9 +59,13 @@ class _ColumnModeWidgetState extends State<ColumnModeWidget> {
     final basePhysics = widget.parentPhysics != null
         ? widget.parentPhysics!.applyTo(const AlwaysScrollableScrollPhysics())
         : const AlwaysScrollableScrollPhysics();
-    final physics = widget.disableScroll
-        ? const NeverScrollableScrollPhysics()
-        : basePhysics;
+    // 锁定时仍挂父级物理：列表自身不接手势，但手工 drag 进来的
+    // 滚动需要父级的边界回弹和松手惯性。
+    final physics = !widget.disableScroll
+        ? basePhysics
+        : widget.preserveScrollPhysics
+        ? NeverScrollableScrollPhysics(parent: basePhysics)
+        : const NeverScrollableScrollPhysics();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -131,7 +137,10 @@ class _ColumnModeWidgetState extends State<ColumnModeWidget> {
             onTransitionAction: widget.onTransitionAction,
             transitionStyle: transitionStyle,
           ),
-          scrollCacheExtent: ScrollCacheExtent.pixels(context.screenHeight * 2),
+          // Flutter 3.50 推荐 scrollCacheExtent，但 OHOS fork(3.47) 没有；
+          // cacheExtent 两端都可用，保留并忽略弃用提示。
+          // ignore: deprecated_member_use
+          cacheExtent: context.screenHeight * 2,
           controller: widget.scrollController,
           addRepaintBoundaries: false,
         );

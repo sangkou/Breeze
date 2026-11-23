@@ -7,7 +7,7 @@ import 'package:zephyr/page/comic_list/cubit/comic_list_state.dart';
 import 'package:zephyr/page/comic_list/models/comic_list_scene.dart';
 import 'package:zephyr/page/comic_list/models/list_filter_bundle.dart';
 import 'package:zephyr/page/comic_list/scene_filter/plugin_list_filter_schema.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 import 'package:zephyr/util/json/json_value.dart';
 import 'package:zephyr/main.dart';
 
@@ -84,7 +84,7 @@ class ComicListCubit extends Cubit<ComicListState> {
           ? sceneBundleFnPath!.trim()
           : 'getComicListSceneBundle';
 
-      Map<String, dynamic> response;
+      UnifiedPluginResult response;
       try {
         response = await callUnifiedComicPlugin(
           from: from,
@@ -106,10 +106,14 @@ class ComicListCubit extends Cubit<ComicListState> {
         );
       }
 
-      final envelope = UnifiedPluginEnvelope.fromMap(response);
+      final envelope = UnifiedPluginEnvelope.fromMap(
+        response.data,
+        source: response.source,
+      );
       final sceneMap = asJsonMap(envelope.data['scene']);
       final loadedScene = ComicListScene.fromMap(
         sceneMap.isNotEmpty ? sceneMap : envelope.data,
+        source: envelope.source,
       );
 
       if (isClosed) {
@@ -193,7 +197,10 @@ class ComicListCubit extends Cubit<ComicListState> {
         extern: filterRequest.extern,
         suppressNeedLoginEvent: suppressNeedLoginEvent,
       );
-      final envelope = UnifiedPluginEnvelope.fromMap(response);
+      final envelope = UnifiedPluginEnvelope.fromMap(
+        response.data,
+        source: response.source,
+      );
       final bundle = _parseFilterBundle(envelope);
 
       if (isClosed) {

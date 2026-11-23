@@ -4,7 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/network/http/plugin/unified_plugin_envelope.dart';
 import 'package:zephyr/network/http/plugin/unified_comic_plugin.dart';
-import 'package:zephyr/plugin/bridge/plugin_config_bridge.dart';
+import 'package:zephyr/database/plugin_config.dart';
 import 'package:zephyr/widgets/fluent_dropdown.dart';
 import 'package:zephyr/widgets/toast.dart';
 import 'package:zephyr/util/json/json_value.dart';
@@ -44,7 +44,10 @@ class _PluginSettingSchemeSectionState
       core: const <String, dynamic>{},
       extern: const <String, dynamic>{},
     );
-    return UnifiedPluginEnvelope.fromMap(response);
+    return UnifiedPluginEnvelope.fromMap(
+      response.data,
+      source: response.source,
+    );
   }
 
   @override
@@ -191,7 +194,10 @@ class _PluginAdvancedActionSectionState
       core: const <String, dynamic>{},
       extern: const <String, dynamic>{},
     );
-    return UnifiedPluginEnvelope.fromMap(response);
+    return UnifiedPluginEnvelope.fromMap(
+      response.data,
+      source: response.source,
+    );
   }
 
   @override

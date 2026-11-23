@@ -20,8 +20,9 @@ class FolderCoverChoice {
 Future<FolderCoverChoice?> showFolderCoverPicker(
   BuildContext context, {
   required ComicFolder folder,
-}) {
-  final comics = FolderCoverService.instance.comicsInFolder(folder);
+}) async {
+  final comics = await FolderCoverService.instance.comicsInFolder(folder);
+  if (!context.mounted) return null;
   final current = FolderCoverService.instance.overrideFor(folder.syncId);
 
   return showDialog<FolderCoverChoice>(

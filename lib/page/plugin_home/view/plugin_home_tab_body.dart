@@ -203,11 +203,8 @@ class _PluginHomePageBody extends StatelessWidget {
       scheme: tab.pageScheme,
       data: tab.pageData,
       onReachBottom: () async {},
-      onAction: (action) => DiscoverRouter.route(
-        context,
-        action: DiscoverRouter.attachSource(action, pluginId),
-        currentFrom: pluginId,
-      ),
+      onAction: (action) =>
+          DiscoverRouter.route(context, action: action, currentFrom: pluginId),
       isLoadingMore: false,
       showLoadMoreRetry: false,
       onRetryLoadMore: () {},

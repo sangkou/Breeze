@@ -7,7 +7,7 @@ import 'package:zephyr/page/bookshelf/models/shelf_page_mode.dart';
 /// 这是书架返回链的底座：UI 层的 LocalHistoryEntry 被返回消费后，
 /// 调的正是这里的 GoBack；根目录时 UI 层不清 entry、直接放行给导航。
 ///
-/// 说明：bloc 构造即发 LoadRequested，测试里没有初始化 ObjectBox，
+/// 说明：bloc 构造即发 LoadRequested，测试里没有初始化数据库，
 /// 查询会落到 error 状态。这里不断言列表内容，只断言导航事件同步发出的
 /// currentPath（先于 load 结果发出，不受影响）。
 void main() {

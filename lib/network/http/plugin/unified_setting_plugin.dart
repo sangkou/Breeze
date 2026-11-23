@@ -9,5 +9,5 @@ Future<UnifiedPluginEnvelope> getPluginSettingsBundle(String pluginId) async {
     core: const <String, dynamic>{},
     extern: const <String, dynamic>{},
   );
-  return UnifiedPluginEnvelope.fromMap(response);
+  return UnifiedPluginEnvelope.fromMap(response.data, source: response.source);
 }

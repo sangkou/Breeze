@@ -59,7 +59,10 @@ class UnifiedPluginSearchResponse {
   final UnifiedPluginSearchPaging paging;
   final List<UnifiedPluginSearchItem> items;
 
-  factory UnifiedPluginSearchResponse.fromMap(Map<String, dynamic> map) {
+  factory UnifiedPluginSearchResponse.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = asJsonMap(map['data']);
     final pagingMap = data.isNotEmpty
         ? asJsonMap(data['paging'])
@@ -73,7 +76,7 @@ class UnifiedPluginSearchResponse {
         .toList();
 
     return UnifiedPluginSearchResponse(
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       extern: asJsonMap(map['extern']),
       paging: UnifiedPluginSearchPaging.fromMap(pagingMap),
       items: itemList,

@@ -28,13 +28,13 @@ void main() {
 
   testWidgets('DoH 开关与端点增删', (tester) async {
     final cubit = await pumpPage(tester);
-    expect(cubit.state.dohSetting.enabled, isTrue);
+    expect(cubit.state.dohSetting.enabled, isFalse);
     expect(cubit.state.dohSetting.providers, defaultDohProviders);
     expect(find.text(t.settings.dohIpHint), findsOneWidget);
 
     await tester.tap(find.byType(Switch).first);
     await tester.pump();
-    expect(cubit.state.dohSetting.enabled, isFalse);
+    expect(cubit.state.dohSetting.enabled, isTrue);
 
     await tester.tap(find.byIcon(Icons.delete_outline).first);
     await tester.pump();

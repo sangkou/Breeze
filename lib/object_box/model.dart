@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:objectbox/objectbox.dart';
 import 'package:zephyr/config/bika/bika_setting.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/config/jm/jm_setting.dart';
@@ -9,11 +8,24 @@ import 'package:zephyr/service/download/models/download_task_json.dart';
 
 part 'model.g.dart';
 
-@Entity()
+/// 旧版本数据/同步 payload 可能缺少后加的字段。日期统一回退到 epoch，
+/// 其余字段用各实体 [fromJson] 里的默认 map 补齐；null 视为缺失。
+const String _epochIso = '1970-01-01T00:00:00.000Z';
+
+Map<String, dynamic> _withModelDefaults(
+  Map<String, dynamic> json,
+  Map<String, Object?> defaults,
+) {
+  final out = <String, dynamic>{...defaults};
+  for (final entry in json.entries) {
+    if (entry.value != null) out[entry.key] = entry.value;
+  }
+  return out;
+}
+
 @JsonSerializable()
 @Deprecated("不再使用，仅作为迁移时作为参考数据结构")
 class BikaComicHistory {
-  @Id()
   int id;
 
   String comicId;
@@ -45,9 +57,7 @@ class BikaComicHistory {
   int pagesCount;
   int epsCount;
   bool finished;
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
-  @Property(type: PropertyType.date)
   DateTime createdAt;
   bool allowDownload;
   bool allowComment;
@@ -59,7 +69,6 @@ class BikaComicHistory {
   int commentsCount;
   bool isFavourite;
   bool isLiked;
-  @Property(type: PropertyType.date)
   DateTime history;
 
   // 下面都是章节的观看历史信息
@@ -133,11 +142,9 @@ class BikaComicHistory {
   }
 }
 
-@Entity()
 @JsonSerializable()
 @Deprecated("不再使用，仅作为迁移时作为参考数据结构")
 class BikaComicDownload {
-  @Id()
   int id;
 
   String comicId;
@@ -169,9 +176,7 @@ class BikaComicDownload {
   int pagesCount;
   int epsCount;
   bool finished;
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
-  @Property(type: PropertyType.date)
   DateTime createdAt;
   bool allowDownload;
   bool allowComment;
@@ -183,7 +188,6 @@ class BikaComicDownload {
   int commentsCount;
   bool isFavourite;
   bool isLiked;
-  @Property(type: PropertyType.date)
   DateTime downloadTime;
 
   // 这个用来放已经下载好的章节的标题，用来检测是否下载了
@@ -251,11 +255,9 @@ class BikaComicDownload {
   }
 }
 
-@Entity()
 @JsonSerializable()
 @Deprecated("不再使用，仅作为迁移时作为参考数据结构")
 class JmFavorite {
-  @Id()
   int id;
 
   String comicId;
@@ -277,7 +279,6 @@ class JmFavorite {
   String purchased;
 
   bool deleted;
-  @Property(type: PropertyType.date)
   DateTime history;
 
   JmFavorite({
@@ -314,11 +315,9 @@ class JmFavorite {
   }
 }
 
-@Entity()
 @JsonSerializable()
 @Deprecated("不再使用，仅作为迁移时作为参考数据结构")
 class JmHistory {
-  @Id()
   int id;
 
   String comicId;
@@ -346,7 +345,6 @@ class JmHistory {
   String epId;
 
   bool deleted;
-  @Property(type: PropertyType.date)
   DateTime history;
 
   JmHistory({
@@ -387,11 +385,9 @@ class JmHistory {
   }
 }
 
-@Entity()
 @JsonSerializable()
 @Deprecated("不再使用，仅作为迁移时作为参考数据结构")
 class JmDownload {
-  @Id()
   int id;
 
   String comicId;
@@ -414,7 +410,6 @@ class JmDownload {
   // 这个用来放已经下载好的章节的id，用来检测是否下载了
   List<String> epsIds;
   String allInfo;
-  @Property(type: PropertyType.date)
   DateTime downloadTime;
 
   JmDownload({
@@ -452,13 +447,10 @@ class JmDownload {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class UnifiedComicFavorite {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   String source;
@@ -469,9 +461,7 @@ class UnifiedComicFavorite {
   String creator;
   String titleMeta;
   String metadata;
-  @Property(type: PropertyType.date)
   DateTime createdAt;
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
   bool deleted;
   int schemaVersion;
@@ -496,7 +486,24 @@ class UnifiedComicFavorite {
   Map<String, dynamic> toJson() => _$UnifiedComicFavoriteToJson(this);
 
   factory UnifiedComicFavorite.fromJson(Map<String, dynamic> json) =>
-      _$UnifiedComicFavoriteFromJson(json);
+      _$UnifiedComicFavoriteFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'comicId': '',
+          'title': '',
+          'description': '',
+          'cover': '',
+          'creator': '',
+          'titleMeta': '',
+          'metadata': '',
+          'createdAt': _epochIso,
+          'updatedAt': _epochIso,
+          'deleted': false,
+          'schemaVersion': 0,
+        }),
+      );
 
   @override
   String toString() {
@@ -504,13 +511,10 @@ class UnifiedComicFavorite {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class UnifiedComicHistory {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   String source;
@@ -525,11 +529,8 @@ class UnifiedComicHistory {
   String chapterTitle;
   int chapterOrder;
   int pageIndex;
-  @Property(type: PropertyType.date)
   DateTime createdAt;
-  @Property(type: PropertyType.date)
   DateTime lastReadAt;
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
   bool deleted;
   int schemaVersion;
@@ -559,7 +560,29 @@ class UnifiedComicHistory {
   Map<String, dynamic> toJson() => _$UnifiedComicHistoryToJson(this);
 
   factory UnifiedComicHistory.fromJson(Map<String, dynamic> json) =>
-      _$UnifiedComicHistoryFromJson(json);
+      _$UnifiedComicHistoryFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'comicId': '',
+          'title': '',
+          'description': '',
+          'cover': '',
+          'creator': '',
+          'titleMeta': '',
+          'metadata': '',
+          'chapterId': '',
+          'chapterTitle': '',
+          'chapterOrder': 0,
+          'pageIndex': 0,
+          'createdAt': _epochIso,
+          'lastReadAt': _epochIso,
+          'updatedAt': _epochIso,
+          'deleted': false,
+          'schemaVersion': 0,
+        }),
+      );
 
   @override
   String toString() {
@@ -567,13 +590,10 @@ class UnifiedComicHistory {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class UnifiedComicDownload {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   String source;
@@ -596,11 +616,8 @@ class UnifiedComicDownload {
   String chapters;
   String detailJson;
   String storageRoot;
-  @Property(type: PropertyType.date)
   DateTime createdAt;
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
-  @Property(type: PropertyType.date)
   DateTime downloadedAt;
   bool deleted;
   int schemaVersion;
@@ -649,7 +666,37 @@ class UnifiedComicDownload {
   Map<String, dynamic> toJson() => _$UnifiedComicDownloadToJson(this);
 
   factory UnifiedComicDownload.fromJson(Map<String, dynamic> json) =>
-      _$UnifiedComicDownloadFromJson(json);
+      _$UnifiedComicDownloadFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'comicId': '',
+          'title': '',
+          'description': '',
+          'cover': '',
+          'creator': '',
+          'titleMeta': '',
+          'metadata': '',
+          'totalViews': 0,
+          'totalLikes': 0,
+          'totalComments': 0,
+          'isFavourite': false,
+          'isLiked': false,
+          'allowComment': false,
+          'allowLike': false,
+          'allowFavorite': false,
+          'allowDownload': false,
+          'chapters': '',
+          'detailJson': '',
+          'storageRoot': '',
+          'createdAt': _epochIso,
+          'updatedAt': _epochIso,
+          'downloadedAt': _epochIso,
+          'deleted': false,
+          'schemaVersion': 0,
+        }),
+      );
 
   @override
   String toString() {
@@ -657,10 +704,8 @@ class UnifiedComicDownload {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class UserSetting {
-  @Id()
   int id;
 
   // 1. ObjectBox 存储字段 (String 类型)
@@ -670,11 +715,8 @@ class UserSetting {
   String jmJwt;
 
   // 2. 内存缓存字段 (@Transient)
-  @Transient()
   GlobalSettingState? _globalSetting;
-  @Transient()
   BikaSettingState? _bikaSetting;
-  @Transient()
   JmSettingState? _jmSetting;
 
   UserSetting({
@@ -685,7 +727,6 @@ class UserSetting {
     this.jmJwt = '',
   });
 
-  @Transient()
   GlobalSettingState get globalSetting {
     if (_globalSetting == null && globalSettingData != null) {
       _globalSetting = GlobalSettingState.fromJson(
@@ -695,13 +736,11 @@ class UserSetting {
     return _globalSetting ??= GlobalSettingState();
   }
 
-  @Transient()
   set globalSetting(GlobalSettingState value) {
     _globalSetting = value;
     globalSettingData = jsonEncode(value.toJson());
   }
 
-  @Transient()
   BikaSettingState get bikaSetting {
     if (_bikaSetting == null && bikaSettingData != null) {
       _bikaSetting = BikaSettingState.fromJson(jsonDecode(bikaSettingData!));
@@ -709,13 +748,11 @@ class UserSetting {
     return _bikaSetting ??= BikaSettingState();
   }
 
-  @Transient()
   set bikaSetting(BikaSettingState value) {
     _bikaSetting = value;
     bikaSettingData = jsonEncode(value.toJson());
   }
 
-  @Transient()
   JmSettingState get jmSetting {
     if (_jmSetting == null && jmSettingData != null) {
       _jmSetting = JmSettingState.fromJson(jsonDecode(jmSettingData!));
@@ -723,7 +760,6 @@ class UserSetting {
     return _jmSetting ??= JmSettingState();
   }
 
-  @Transient()
   set jmSetting(JmSettingState value) {
     _jmSetting = value;
     jmSettingData = jsonEncode(value.toJson());
@@ -740,12 +776,10 @@ class UserSetting {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class DownloadTask {
   DownloadTask();
 
-  @Id()
   int id = 0;
 
   String comicId = "";
@@ -760,10 +794,8 @@ class DownloadTask {
 
   String? dbTaskInfoStr;
 
-  @Transient()
   DownloadTaskJson? _taskInfo;
 
-  @Transient()
   DownloadTaskJson? get taskInfo {
     if (_taskInfo == null &&
         dbTaskInfoStr != null &&
@@ -776,8 +808,12 @@ class DownloadTask {
   }
 
   set taskInfo(DownloadTaskJson? value) {
+    // fromJson 会先赋值 dbTaskInfoStr、再赋值 taskInfo；SQLite 行里没有
+    // taskInfo 键（只有 dbTaskInfoStr 列），这里必须忽略 null，否则每次
+    // 读库都会把已存的 payload 抹掉。代码里没有“置空 payload”的用法。
+    if (value == null) return;
     _taskInfo = value;
-    dbTaskInfoStr = value == null ? null : jsonEncode(value.toJson());
+    dbTaskInfoStr = jsonEncode(value.toJson());
   }
 
   Map<String, dynamic> toJson() => _$DownloadTaskToJson(this);
@@ -791,10 +827,8 @@ class DownloadTask {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class PluginConfig {
-  @Id()
   int id;
 
   String name;
@@ -814,34 +848,36 @@ class PluginConfig {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class PluginInfo {
-  @Id()
   int id = 0;
 
-  @Unique()
   String uuid;
 
   String version;
 
+  /// 插件脚本。PluginInfo 表不存这一列：
+  /// 默认查询返回空串，只有安装/同步/备份或显式 with-script 查询才填充。
   String originScript;
+
+  /// 脚本内容的最后变更时间（Unix 毫秒）。
+  ///
+  /// 随 with-script 查询返回，同步时用于单独判断脚本新旧：
+  /// 插件加载结果会刷新 [updatedAt]，不能让“加载得晚”覆盖更新的脚本。
+  int scriptUpdatedAt;
 
   bool lastLoadSuccess;
 
   String? lastLoadError;
 
-  @Property(type: PropertyType.date)
   DateTime insertedAt;
 
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
 
   bool isEnabled;
 
   bool isDeleted;
 
-  @Property(type: PropertyType.date)
   DateTime? deletedAt;
 
   /// 用户自定义的插件顺序；为空时回退到 [insertedAt]。
@@ -859,6 +895,7 @@ class PluginInfo {
     required this.uuid,
     required this.version,
     required this.originScript,
+    this.scriptUpdatedAt = 0,
     required this.insertedAt,
     required this.updatedAt,
     required this.isEnabled,
@@ -875,7 +912,22 @@ class PluginInfo {
   Map<String, dynamic> toJson() => _$PluginInfoToJson(this);
 
   factory PluginInfo.fromJson(Map<String, dynamic> json) =>
-      _$PluginInfoFromJson(json);
+      _$PluginInfoFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uuid': '',
+          'version': '',
+          'insertedAt': _epochIso,
+          'updatedAt': _epochIso,
+          'isEnabled': false,
+          'isDeleted': false,
+          'lastLoadSuccess': false,
+          'originScript': '',
+          'scriptUpdatedAt': 0,
+          'getInfoJson': '',
+          'debug': false,
+        }),
+      );
 
   @override
   String toString() {
@@ -883,13 +935,10 @@ class PluginInfo {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class ComicFollow {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   String source;
@@ -914,19 +963,15 @@ class ComicFollow {
   bool hasUpdate;
 
   /// 最近一次检测是否失败（仅内存，不持久化）
-  @Transient()
   @JsonKey(includeFromJson: false, includeToJson: false)
   bool lastCheckFailed;
 
-  @Property(type: PropertyType.date)
   DateTime updateTime;
 
   bool deleted;
 
-  @Property(type: PropertyType.date)
   DateTime createdAt;
 
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
 
   int schemaVersion;
@@ -1003,7 +1048,29 @@ class ComicFollow {
   Map<String, dynamic> toJson() => _$ComicFollowToJson(this);
 
   factory ComicFollow.fromJson(Map<String, dynamic> json) =>
-      _$ComicFollowFromJson(json);
+      _$ComicFollowFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'comicId': '',
+          'title': '',
+          'description': '',
+          'cover': '',
+          'creator': '',
+          'titleMeta': '',
+          'metadata': '',
+          'lastChapterCount': 0,
+          'detectedChapterCount': 0,
+          'detectedChapterTitle': '',
+          'hasUpdate': false,
+          'updateTime': _epochIso,
+          'deleted': false,
+          'createdAt': _epochIso,
+          'updatedAt': _epochIso,
+          'schemaVersion': 0,
+        }),
+      );
 
   @override
   String toString() {
@@ -1014,23 +1081,18 @@ class ComicFollow {
 /// 漫画文件夹/链接类型：收藏、历史、下载
 enum ComicFolderType { favorite, history, download }
 
-@Entity()
 @JsonSerializable()
 class ComicFolder {
-  @Id()
   int id;
 
   /// 全局稳定同步 ID，创建后不变，跨设备同步时使用。
   @JsonKey(defaultValue: '')
-  @Index()
   String syncId;
 
   /// 父文件夹的 syncId，null 表示根目录
-  @Index()
   String? parentSyncId;
 
   /// 复合唯一键：parentSyncId|name|typeData
-  @Unique()
   String uniqueKey;
 
   /// 显示名称
@@ -1039,11 +1101,9 @@ class ComicFolder {
   /// 实际存储的枚举名称：favorite / history / download
   String typeData;
 
-  @Transient()
   @JsonKey(includeFromJson: false, includeToJson: false)
   ComicFolderType get type => ComicFolderType.values.byName(typeData);
 
-  @Transient()
   set type(ComicFolderType value) => typeData = value.name;
 
   /// 版本向量 JSON 字符串
@@ -1074,7 +1134,18 @@ class ComicFolder {
   Map<String, dynamic> toJson() => _$ComicFolderToJson(this);
 
   factory ComicFolder.fromJson(Map<String, dynamic> json) =>
-      _$ComicFolderFromJson(json);
+      _$ComicFolderFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'syncId': '',
+          'uniqueKey': '',
+          'name': '',
+          'typeData': '',
+          'versionVectorJson': '',
+          'createdAt': 0,
+          'updatedAt': 0,
+        }),
+      );
 
   @override
   String toString() {
@@ -1082,31 +1153,25 @@ class ComicFolder {
   }
 }
 
-@Entity()
 @JsonSerializable()
 class ComicLink {
-  @Id()
   int id;
 
   /// 复合唯一键：comicUniqueKey|folderSyncId|typeData
-  @Unique()
   String uniqueKey;
 
   /// 漫画全局唯一标识（如 UnifiedComicFavorite 的 uniqueKey）
   String comicUniqueKey;
 
   /// 所属文件夹的 syncId，null 表示根目录
-  @Index()
   String? folderSyncId;
 
   /// 实际存储的枚举名称：favorite / history / download
   String typeData;
 
-  @Transient()
   @JsonKey(includeFromJson: false, includeToJson: false)
   ComicFolderType get type => ComicFolderType.values.byName(typeData);
 
-  @Transient()
   set type(ComicFolderType value) => typeData = value.name;
 
   /// 版本向量 JSON 字符串
@@ -1135,8 +1200,17 @@ class ComicLink {
 
   Map<String, dynamic> toJson() => _$ComicLinkToJson(this);
 
-  factory ComicLink.fromJson(Map<String, dynamic> json) =>
-      _$ComicLinkFromJson(json);
+  factory ComicLink.fromJson(Map<String, dynamic> json) => _$ComicLinkFromJson(
+    _withModelDefaults(json, const <String, Object?>{
+      'id': 0,
+      'uniqueKey': '',
+      'comicUniqueKey': '',
+      'typeData': '',
+      'versionVectorJson': '',
+      'createdAt': 0,
+      'updatedAt': 0,
+    }),
+  );
 
   @override
   String toString() {
@@ -1151,14 +1225,11 @@ class ComicLink {
 /// 有记录且 [deleted] 为 false 表示启用了本漫特定设置；
 /// 删除时清空 patch 并立 [deleted] 墓碑，靠 LWW 同步到其它设备。
 /// 合并规则：unix 时间戳（[updatedAt]）更大的保留，与收藏/历史同一套 LWW。
-@Entity()
 @JsonSerializable()
 class ComicReadPreference {
-  @Id()
   int id;
 
   /// 复合唯一键：`$source:$comicId`，与历史/收藏保持一致。
-  @Unique()
   String uniqueKey;
 
   String source;
@@ -1175,7 +1246,6 @@ class ComicReadPreference {
   @JsonKey(includeToJson: false)
   int readMode;
 
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
 
   bool deleted;
@@ -1197,7 +1267,6 @@ class ComicReadPreference {
   /// 返回 null 表示没有覆盖 = 跟随全局（含墓碑行）。
   /// record 的 `keys` 是精确的 key 集合：“有没有设置”看它，不看值。
   /// 脏数据兜底：解析失败返回 null。
-  @Transient()
   @JsonKey(includeFromJson: false, includeToJson: false)
   ({ReadSettingState setting, Set<String> keys})? get overrideSetting {
     if (deleted) return null;
@@ -1258,13 +1327,23 @@ class ComicReadPreference {
   /// 兼容 v11 及更早：老数据只有 `readMode` 整列，转成 `{"readMode":x}` patch。
   /// 缺 `readMode` 时（新版备份/同步）补 0，生成的 `fromJson` 才能安全解析。
   factory ComicReadPreference.fromJson(Map<String, dynamic> json) {
-    json = Map.of(json);
-    json.putIfAbsent('readMode', () => 0);
+    json = Map.of(
+      _withModelDefaults(json, const <String, Object?>{
+        'id': 0,
+        'uniqueKey': '',
+        'source': '',
+        'comicId': '',
+        'readMode': 0,
+        'updatedAt': _epochIso,
+        'deleted': false,
+      }),
+    );
     if (!json.containsKey('overridesJson') && json['readMode'] is num) {
       json['overridesJson'] = jsonEncode({
         'readMode': (json['readMode'] as num).toInt().clamp(0, 2),
       });
     }
+    json['overridesJson'] ??= '{}';
     return _$ComicReadPreferenceFromJson(json);
   }
 
@@ -1278,13 +1357,10 @@ class ComicReadPreference {
 ///
 /// 不做排序键提取、不做定位探测，无需插件声明：快照只是搜索参数重放。
 /// [uniqueKey] 复合唯一：`$source|$keyword|$anchorComicId`。
-@Entity()
 @JsonSerializable()
 class SearchBookmark {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   /// 插件 uuid。
@@ -1313,10 +1389,8 @@ class SearchBookmark {
   @JsonKey(defaultValue: 0)
   int anchorIndex;
 
-  @Property(type: PropertyType.date)
   DateTime createdAt;
 
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
 
   SearchBookmark({
@@ -1335,7 +1409,6 @@ class SearchBookmark {
   });
 
   /// 记录时的完整搜索 extern（解析失败回退空 map）。
-  @Transient()
   @JsonKey(includeFromJson: false, includeToJson: false)
   Map<String, dynamic> get extern {
     try {
@@ -1349,7 +1422,22 @@ class SearchBookmark {
   Map<String, dynamic> toJson() => _$SearchBookmarkToJson(this);
 
   factory SearchBookmark.fromJson(Map<String, dynamic> json) =>
-      _$SearchBookmarkFromJson(json);
+      _$SearchBookmarkFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'keyword': '',
+          'externJson': '',
+          'anchorComicId': '',
+          'anchorTitle': '',
+          'anchorCover': '',
+          'anchorPage': 0,
+          'anchorIndex': 0,
+          'createdAt': _epochIso,
+          'updatedAt': _epochIso,
+        }),
+      );
 
   @override
   String toString() {
@@ -1371,21 +1459,16 @@ String searchBookmarkUniqueKey(
 /// 只记录“打开过阅读器”的章节，不做进度百分比；[uniqueKey] 复合唯一：
 /// `$source:$comicId:$chapterId`，同一章重复打开只更新 [readAt]。
 /// 本地记录，不参与云同步；随数据备份导出/导入。
-@Entity()
 @JsonSerializable()
 class ComicReadChapter {
-  @Id()
   int id;
 
-  @Unique()
   String uniqueKey;
 
   /// 插件 uuid。
-  @Index()
   String source;
 
   /// 漫画 id。
-  @Index()
   String comicId;
 
   /// 章节宿主内部匹配 key（与详情页 [DownloadChapter.id] / 阅读器 epId 一致）。
@@ -1397,10 +1480,8 @@ class ComicReadChapter {
   /// 章节顺序快照。
   int chapterOrder;
 
-  @Property(type: PropertyType.date)
   DateTime readAt;
 
-  @Property(type: PropertyType.date)
   DateTime updatedAt;
 
   ComicReadChapter({
@@ -1418,7 +1499,19 @@ class ComicReadChapter {
   Map<String, dynamic> toJson() => _$ComicReadChapterToJson(this);
 
   factory ComicReadChapter.fromJson(Map<String, dynamic> json) =>
-      _$ComicReadChapterFromJson(json);
+      _$ComicReadChapterFromJson(
+        _withModelDefaults(json, const <String, Object?>{
+          'id': 0,
+          'uniqueKey': '',
+          'source': '',
+          'comicId': '',
+          'chapterId': '',
+          'chapterTitle': '',
+          'chapterOrder': 0,
+          'readAt': _epochIso,
+          'updatedAt': _epochIso,
+        }),
+      );
 
   @override
   String toString() {

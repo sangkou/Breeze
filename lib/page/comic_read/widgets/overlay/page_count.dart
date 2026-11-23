@@ -9,6 +9,8 @@ import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/page/comic_read/cubit/reader_cubit.dart';
 import 'package:zephyr/page/comic_read/widgets/layout/read_layout.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
 
 class PageCountWidget extends StatefulWidget {
   final String epPages;
@@ -39,12 +41,17 @@ class _PageCountWidgetState extends State<PageCountWidget> {
   int _batteryLevel = 100;
   BatteryState _batteryState = BatteryState.full;
   StreamSubscription<BatteryState>? _batteryStateSubscription;
+  Timer? _ohosStatusTimer;
 
   @override
   void initState() {
     super.initState();
-    _initConnectivity();
-    _initBattery();
+    if (isOhos) {
+      _initOhosStatus();
+    } else {
+      _initConnectivity();
+      _initBattery();
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateTime();
@@ -55,9 +62,68 @@ class _PageCountWidgetState extends State<PageCountWidget> {
   @override
   void dispose() {
     _timer?.cancel();
+    _ohosStatusTimer?.cancel();
     _connectivitySubscription?.cancel();
     _batteryStateSubscription?.cancel();
     super.dispose();
+  }
+
+  void _initOhosStatus() {
+    _refreshOhosStatus();
+    _ohosStatusTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _refreshOhosStatus();
+    });
+  }
+
+  Future<void> _refreshOhosStatus() async {
+    try {
+      final types = await getOhosConnectivity();
+      _updateConnectivityResult(
+        types.map(_mapOhosConnectivity).toList(growable: false),
+      );
+    } catch (_) {}
+
+    try {
+      final info = await getOhosBatteryInfo();
+      if (info != null && mounted) {
+        setState(() {
+          _batteryLevel = info.level;
+          _batteryState = _mapOhosBatteryState(info.state);
+        });
+      }
+    } catch (_) {}
+  }
+
+  ConnectivityResult _mapOhosConnectivity(String type) {
+    switch (type) {
+      case 'wifi':
+        return ConnectivityResult.wifi;
+      case 'mobile':
+        return ConnectivityResult.mobile;
+      case 'ethernet':
+        return ConnectivityResult.ethernet;
+      case 'bluetooth':
+        return ConnectivityResult.bluetooth;
+      case 'vpn':
+        return ConnectivityResult.vpn;
+      case 'none':
+        return ConnectivityResult.none;
+      default:
+        return ConnectivityResult.other;
+    }
+  }
+
+  BatteryState _mapOhosBatteryState(String state) {
+    switch (state) {
+      case 'charging':
+        return BatteryState.charging;
+      case 'full':
+        return BatteryState.full;
+      case 'discharging':
+        return BatteryState.discharging;
+      default:
+        return BatteryState.unknown;
+    }
   }
 
   void _initBattery() async {
@@ -171,13 +237,15 @@ class _PageCountWidgetState extends State<PageCountWidget> {
     if (formattedTime != _currentTime) {
       setState(() => _currentTime = formattedTime);
 
-      _battery.batteryLevel
-          .then((level) {
-            if (mounted && _batteryLevel != level) {
-              setState(() => _batteryLevel = level);
-            }
-          })
-          .catchError((_) {});
+      if (!isOhos) {
+        _battery.batteryLevel
+            .then((level) {
+              if (mounted && _batteryLevel != level) {
+                setState(() => _batteryLevel = level);
+              }
+            })
+            .catchError((_) {});
+      }
     }
   }
 

@@ -1,12 +1,23 @@
 import 'dart:convert';
 
+import 'package:zephyr/main.dart';
+import 'package:zephyr/network/http/plugin/qjs_call_exception.dart';
 import 'package:zephyr/network/http/plugin/qjs_download_runtime.dart';
 import 'package:zephyr/network/http/plugin/unauthorized_payload.dart';
+import 'package:zephyr/src/rust/api/qjs.dart';
 import 'package:zephyr/util/event/event.dart';
 import 'package:zephyr/util/json/json_value.dart';
-import 'package:zephyr/main.dart';
 
-Future<Map<String, dynamic>> callUnifiedComicPlugin({
+/// 插件调用结果：`source` 是宿主调用时传入、由 Rust 原样带回的插件 id；
+/// `data` 是插件返回体，宿主不修改其中的 source 字段。
+class UnifiedPluginResult {
+  const UnifiedPluginResult({required this.source, required this.data});
+
+  final String source;
+  final Map<String, dynamic> data;
+}
+
+Future<UnifiedPluginResult> callUnifiedComicPlugin({
   String? from,
   String? pluginId,
   required String fnPath,
@@ -33,27 +44,35 @@ Future<Map<String, dynamic>> callUnifiedComicPlugin({
   final argsJson = jsonEncode(payload);
   final runtime = runtimeName ?? resolvedPluginId;
   try {
-    final raw = await _invokeQjs(
+    final result = await _invokeQjs(
       pluginId: resolvedPluginId,
       runtimeName: runtime,
       fnPath: resolvedFnPath,
       argsJson: argsJson,
     );
-    final decoded = requireJsonMap(jsonDecode(raw), message: '插件返回格式错误');
-    return _normalizePluginSourceFields(decoded, resolvedPluginId);
+    final decoded = requireJsonMap(
+      jsonDecode(utf8.decode(result.bytes, allowMalformed: true)),
+      message: '插件返回格式错误',
+    );
+    return UnifiedPluginResult(source: result.source, data: decoded);
   } catch (error) {
+    logger.d(error);
+    final errorSource = error is QjsCallException
+        ? error.source
+        : resolvedPluginId;
     final unauthorized = parseUnauthorizedPayload(
       error,
-      fallbackPluginId: resolvedPluginId,
+      fallbackPluginId: errorSource,
     );
     if (unauthorized != null) {
+      final loginPluginId = unauthorized.pluginId;
       if (!suppressNeedLoginEvent) {
         eventBus.fire(
-          NeedLogin(from: unauthorized.pluginId, message: unauthorized.message),
+          NeedLogin(from: loginPluginId, message: unauthorized.message),
         );
       }
       throw PluginUnauthorizedException(
-        pluginId: unauthorized.pluginId,
+        pluginId: loginPluginId,
         message: unauthorized.message,
       );
     }
@@ -61,7 +80,7 @@ Future<Map<String, dynamic>> callUnifiedComicPlugin({
   }
 }
 
-Future<String> _invokeQjs({
+Future<QjsCallResult> _invokeQjs({
   required String pluginId,
   required String runtimeName,
   required String fnPath,
@@ -73,28 +92,4 @@ Future<String> _invokeQjs({
     fnPath: fnPath,
     argsJson: argsJson,
   );
-}
-
-Map<String, dynamic> _normalizePluginSourceFields(
-  Map<String, dynamic> input,
-  String pluginId,
-) {
-  dynamic walk(dynamic node) {
-    if (node is Map) {
-      final map = Map<String, dynamic>.from(node);
-      if (map.containsKey('source')) {
-        map['source'] = pluginId;
-      }
-      for (final entry in map.entries.toList()) {
-        map[entry.key] = walk(entry.value);
-      }
-      return map;
-    }
-    if (node is List) {
-      return node.map(walk).toList();
-    }
-    return node;
-  }
-
-  return walk(input) as Map<String, dynamic>;
 }

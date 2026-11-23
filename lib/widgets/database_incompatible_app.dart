@@ -4,8 +4,8 @@ import 'package:zephyr/i18n/strings.g.dart';
 
 /// 数据库 schema 比当前代码新时的兜底界面。
 ///
-/// 通常出现在用户降级安装（旧版本覆盖新版本）后，ObjectBox 无法打开
-/// 更高版本的数据库。此时不进入正常应用，只提示用户升级。
+/// 通常出现在用户降级安装（旧版本覆盖新版本）后，SQLite 的
+/// `user_version` 高于当前代码。此时不进入正常应用，只提示用户升级。
 class DatabaseIncompatibleApp extends StatelessWidget {
   const DatabaseIncompatibleApp({super.key});
 

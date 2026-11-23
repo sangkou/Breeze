@@ -5,7 +5,6 @@ import 'package:auto_route/auto_route.dart';
 import 'package:zephyr/plugin/utils/plugin_local_file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/cubit/plugin_registry_cubit.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
@@ -18,10 +17,11 @@ import 'package:zephyr/plugin/plugin_install_service.dart';
 import 'package:zephyr/plugin/plugin_registry_service.dart';
 import 'package:zephyr/plugin/utils/plugin_cloud_download_utils.dart';
 import 'package:zephyr/util/event/event.dart';
+import 'package:zephyr/util/system/external_link.dart';
 import 'package:zephyr/util/event/webview_observe_bus.dart';
 import 'package:zephyr/util/json/json_value.dart';
 import 'package:zephyr/config/router/router.gr.dart';
-import 'package:zephyr/plugin/bridge/plugin_config_bridge.dart';
+import 'package:zephyr/database/plugin_config.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 @RoutePage()
@@ -269,9 +269,8 @@ class _PluginSettingsPageViewState extends State<_PluginSettingsPageView> {
       logger.d('[WebLoginFallback] session start failed, open chrome download');
       showErrorToast(t.plugin.chromiumNotFound);
       unawaited(
-        launchUrl(
+        openExternalUrl(
           Uri.parse(ExternalChromiumLoginSession.chromeDownloadUrl),
-          mode: LaunchMode.externalApplication,
         ),
       );
       return;
@@ -423,7 +422,7 @@ class _PluginSettingsPageViewState extends State<_PluginSettingsPageView> {
         core: {'cookie': cookie, 'url': url},
         extern: const <String, dynamic>{},
       );
-      final message = result['message']?.toString().trim();
+      final message = result.data['message']?.toString().trim();
       showSuccessToast(
         message?.isNotEmpty == true ? message! : t.plugin.cookieSynced,
       );
@@ -719,10 +718,10 @@ class _PluginSettingsPageViewState extends State<_PluginSettingsPageView> {
         core: const <String, dynamic>{},
         extern: const <String, dynamic>{},
       );
-      final startedWebLogin = await _maybeHandleWebLoginResult(result);
+      final startedWebLogin = await _maybeHandleWebLoginResult(result.data);
       if (!startedWebLogin) {
         final message =
-            result['message']?.toString() ?? t.plugin.executeSuccess;
+            result.data['message']?.toString() ?? t.plugin.executeSuccess;
         showSuccessToast(message);
       }
       if (!mounted) return;
@@ -749,7 +748,7 @@ class _PluginSettingsPageViewState extends State<_PluginSettingsPageView> {
           core: {'key': key, 'value': value},
           extern: const <String, dynamic>{},
         );
-        startedWebLogin = await _maybeHandleWebLoginResult(result);
+        startedWebLogin = await _maybeHandleWebLoginResult(result.data);
       }
 
       if (persist && key.isNotEmpty) {

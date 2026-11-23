@@ -83,6 +83,8 @@ const BRIDGE_ROUTE_CACHE_COMPARE_AND_SET: &str = "cache.compare_and_set";
 const BRIDGE_ROUTE_CACHE_DELETE: &str = "cache.delete";
 const BRIDGE_ROUTE_RUNTIME_GC: &str = "runtime.gc";
 const BRIDGE_ROUTE_RUNTIME_IS_TASK_GROUP_CANCELLED: &str = "runtime.is_task_group_cancelled";
+const BRIDGE_ROUTE_SAVE_PLUGIN_CONFIG: &str = "save_plugin_config";
+const BRIDGE_ROUTE_LOAD_PLUGIN_CONFIG: &str = "load_plugin_config";
 const HOST_CACHE_VALUE_MAX_BYTES: usize = 500 * 1024;
 const CANCELLED_GROUP_TTL: Duration = Duration::from_secs(120);
 const REGISTERED_DART_CALLBACK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -233,10 +235,22 @@ pub struct QjsCancelTasksByGroupResult {
     pub failed_runtime_groups: Vec<String>,
 }
 
+/// bundle 安装结果。
+///
+/// `used_bytecode=true` 表示走了预编译字节码快速路径；否则是源码加载，
+/// `bytecode_error` 记录了字节码不可用的原因（None 表示本次本来就没有字节码）。
+#[derive(Debug, Clone)]
+pub struct QjsBundleInstallResult {
+    pub used_bytecode: bool,
+    pub bytecode_error: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct QjsRuntimeBundleBuild {
     pub bundle_name: String,
     pub bundle_js: String,
+    /// 可选的预编译字节码（含宿主缓存头）。校验不过或加载失败会自动回退源码。
+    pub bytecode: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
@@ -271,6 +285,7 @@ impl QjsRuntimeBuilder {
         self.bundle = Some(QjsRuntimeBundleBuild {
             bundle_name: bundle_name.into(),
             bundle_js: bundle_js.into(),
+            bytecode: None,
         });
         self
     }
@@ -280,7 +295,7 @@ impl QjsRuntimeBuilder {
         self
     }
 
-    pub async fn build(self) -> Result<()> {
+    pub async fn build(self) -> Result<QjsBundleInstallResult> {
         let runtime_name = self.runtime_name.trim().to_string();
         if runtime_name.is_empty() {
             return Err(anyhow!(rquickjs_playground::tr!(
@@ -295,7 +310,7 @@ impl QjsRuntimeBuilder {
                     "bundle_name-cannot-be-empty"
                 )));
             }
-            if bundle.bundle_js.trim().is_empty() {
+            if bundle.bundle_js.trim().is_empty() && bundle.bytecode.is_none() {
                 return Err(anyhow!(rquickjs_playground::tr!(
                     "bundle_js-cannot-be-empty"
                 )));
@@ -304,13 +319,17 @@ impl QjsRuntimeBuilder {
                 &runtime_name,
                 &bundle_name,
                 &bundle.bundle_js,
+                bundle.bytecode.as_deref(),
                 self.options,
             )
             .await;
         }
 
         let _runtime = qjs_runtime_with_options(&runtime_name, self.options).await?;
-        Ok(())
+        Ok(QjsBundleInstallResult {
+            used_bytecode: false,
+            bytecode_error: None,
+        })
     }
 }
 
@@ -328,6 +347,29 @@ fn qjs_tracked_task_map() -> &'static RwLock<QjsTrackedTaskMap> {
 
 fn qjs_runtime_init_lock() -> &'static AsyncMutex<()> {
     QJS_RUNTIME_INIT_LOCK.get_or_init(|| AsyncMutex::new(()))
+}
+
+/// 字节码缓存的应用版本号。
+///
+/// 落盘字节码头里记录它：应用升级后即便引擎 `BC_VERSION` 没变，旧字节码也
+/// 一律作废（我们的 quickjs 补丁可能在版本号不变时改变生成的指令序列）。
+/// 未设置时为空串，字节码校验必然失败 → 安全地回退源码。
+static QJS_BYTECODE_APP_VERSION: LazyLock<std::sync::RwLock<String>> =
+    LazyLock::new(|| std::sync::RwLock::new(String::new()));
+
+pub fn set_bytecode_app_version(version: String) {
+    let normalized = version.trim().to_string();
+    match QJS_BYTECODE_APP_VERSION.write() {
+        Ok(mut current) => *current = normalized,
+        Err(_) => tracing::warn!("[qjs-bytecode] 应用版本锁已损坏，忽略写入"),
+    }
+}
+
+fn bytecode_app_version() -> String {
+    QJS_BYTECODE_APP_VERSION
+        .read()
+        .map(|value| value.clone())
+        .unwrap_or_default()
 }
 
 fn host_cache_store_cell() -> &'static DashMap<String, HostCacheEntry> {
@@ -810,8 +852,9 @@ async fn create_qjs_runtime_with_bundle_and_options(
     runtime_name: &str,
     bundle_name: &str,
     bundle_js: &str,
+    bundle_bytecode: Option<&[u8]>,
     options: WebRuntimeOptions,
-) -> Result<()> {
+) -> Result<QjsBundleInstallResult> {
     if runtime_name.trim().is_empty() {
         return Err(anyhow!(rquickjs_playground::tr!(
             "runtime_name-cannot-be-empty"
@@ -822,7 +865,7 @@ async fn create_qjs_runtime_with_bundle_and_options(
             "bundle_name-cannot-be-empty"
         )));
     }
-    if bundle_js.trim().is_empty() {
+    if bundle_js.trim().is_empty() && bundle_bytecode.is_none() {
         return Err(anyhow!(rquickjs_playground::tr!(
             "bundle_js-cannot-be-empty"
         )));
@@ -834,7 +877,9 @@ async fn create_qjs_runtime_with_bundle_and_options(
         let map = qjs_runtime_map().read().await;
         if let Some(existing_runtime) = map.get(runtime_name) {
             ensure_runtime_options(runtime_name, existing_runtime, options)?;
-            replace_bundle_inner(existing_runtime, bundle_name, bundle_js).await?;
+            let install_result =
+                replace_bundle_inner(existing_runtime, bundle_name, bundle_js, bundle_bytecode)
+                    .await?;
             tracing::info!(
                 "{}",
                 rquickjs_playground::tr!(
@@ -843,12 +888,13 @@ async fn create_qjs_runtime_with_bundle_and_options(
                     bundle_name = bundle_name
                 )
             );
-            return Ok(());
+            return Ok(install_result);
         }
     }
 
     let new_runtime = Arc::new(create_qjs_runtime_with_options(runtime_name, options).await?);
-    load_bundle_inner(&new_runtime, bundle_name, bundle_js).await?;
+    let install_result =
+        install_bundle(&new_runtime, bundle_name, bundle_js, bundle_bytecode).await?;
 
     let mut map = qjs_runtime_map().write().await;
     map.insert(runtime_name.to_owned(), new_runtime);
@@ -862,7 +908,7 @@ async fn create_qjs_runtime_with_bundle_and_options(
             arg2 = options.fs
         )
     );
-    Ok(())
+    Ok(install_result)
 }
 
 fn parse_args_array(args_json: &str) -> Result<Value> {
@@ -963,11 +1009,83 @@ async fn load_bundle_inner(runtime: &AsyncHostRuntime, name: &str, bundle_js: &s
     })
 }
 
+/// 安装 bundle：优先字节码快速路径，任何失败都回退到源码加载。
+///
+/// 回退不是错误路径的兜底而是预期行为（缓存过期/损坏/引擎升级），所以只在
+/// `bytecode_error` 里回报原因，由 Dart 侧删除旧缓存并后台重编译。
+async fn install_bundle(
+    runtime: &AsyncHostRuntime,
+    name: &str,
+    bundle_js: &str,
+    bundle_bytecode: Option<&[u8]>,
+) -> Result<QjsBundleInstallResult> {
+    if let Some(bytecode) = bundle_bytecode {
+        let app_version = bytecode_app_version();
+        if bundle_js.trim().is_empty() {
+            // 宿主用脚本 revision 命名字节码文件，revision 命中即代表对应当前
+            // 源码；这里只校验引擎/应用版本，加载失败再由 Dart 回退源码。
+            let payload =
+                rquickjs_playground::bytecode::validate_without_source(bytecode, &app_version)
+                    .map_err(|err| anyhow!(err))?;
+            runtime
+                .bundle_load_bytecode(name, "", payload)
+                .await
+                .map_err(|err| {
+                    anyhow!(rquickjs_playground::tr!(
+                        "failed-to-load-qjs-bundle",
+                        err = err
+                    ))
+                })?;
+            return Ok(QjsBundleInstallResult {
+                used_bytecode: true,
+                bytecode_error: None,
+            });
+        }
+        match rquickjs_playground::bytecode::load_bundle(
+            runtime,
+            name,
+            bundle_js,
+            &app_version,
+            bytecode,
+        )
+        .await
+        {
+            Ok(()) => {
+                return Ok(QjsBundleInstallResult {
+                    used_bytecode: true,
+                    bytecode_error: None,
+                });
+            }
+            Err(err) => {
+                tracing::warn!("[qjs-bytecode] {name}: {err}");
+                load_bundle_inner(runtime, name, bundle_js).await?;
+                return Ok(QjsBundleInstallResult {
+                    used_bytecode: false,
+                    bytecode_error: Some(err),
+                });
+            }
+        }
+    }
+
+    if bundle_js.trim().is_empty() {
+        return Err(anyhow!(rquickjs_playground::tr!(
+            "bundle_js-cannot-be-empty"
+        )));
+    }
+
+    load_bundle_inner(runtime, name, bundle_js).await?;
+    Ok(QjsBundleInstallResult {
+        used_bytecode: false,
+        bytecode_error: None,
+    })
+}
+
 async fn replace_bundle_inner(
     runtime: &AsyncHostRuntime,
     name: &str,
     bundle_js: &str,
-) -> Result<()> {
+    bundle_bytecode: Option<&[u8]>,
+) -> Result<QjsBundleInstallResult> {
     let names = runtime.bundle_list().await.map_err(|err| {
         anyhow!(rquickjs_playground::tr!(
             "failed-to-read-bundle-list-2",
@@ -975,7 +1093,16 @@ async fn replace_bundle_inner(
         ))
     })?;
 
+    // 先装新 bundle（同名直接覆盖注册表条目），再清理其它旧 bundle。
+    // 反过来「先 unload 再 install」会在两次调用之间留下空注册表窗口：
+    // 首页/云收藏等并发发起的 bundle_call 恰好落在窗口里就会报
+    // "bundle not found"，旧 bundle 也会在安装失败时一起丢掉。
+    let result = install_bundle(runtime, name, bundle_js, bundle_bytecode).await?;
+
     for existing in names {
+        if existing == name {
+            continue;
+        }
         runtime.bundle_unload(&existing).await.map_err(|err| {
             anyhow!(rquickjs_playground::tr!(
                 "failed-to-unload-old-bundle",
@@ -985,7 +1112,7 @@ async fn replace_bundle_inner(
         })?;
     }
 
-    load_bundle_inner(runtime, name, bundle_js).await
+    Ok(result)
 }
 
 async fn call_loaded_bundle_start(
@@ -1273,9 +1400,32 @@ pub async fn qjs_replace_bundle(
     runtime_name: String,
     bundle_name: String,
     bundle_js: String,
-) -> Result<()> {
+    bundle_bytecode: Option<Vec<u8>>,
+) -> Result<QjsBundleInstallResult> {
     let runtime = qjs_runtime(&runtime_name).await?;
-    replace_bundle_inner(&runtime, &bundle_name, &bundle_js).await
+    replace_bundle_inner(
+        &runtime,
+        &bundle_name,
+        &bundle_js,
+        bundle_bytecode.as_deref(),
+    )
+    .await
+}
+
+/// 把插件源码编译成可落盘字节码（不执行源码）。
+///
+/// 返回的 blob 自带缓存头（引擎版本 / 应用版本 / 源码指纹），加载时由
+/// `rquickjs_playground::bytecode::validate` 校验。
+pub async fn qjs_compile_bundle_bytecode(bundle_name: String, source: String) -> Result<Vec<u8>> {
+    if source.trim().is_empty() {
+        return Err(anyhow!(rquickjs_playground::tr!(
+            "bundle_js-cannot-be-empty"
+        )));
+    }
+    let app_version = bytecode_app_version();
+    rquickjs_playground::bytecode::compile_bundle(&bundle_name, &source, &app_version)
+        .await
+        .map_err(anyhow::Error::msg)
 }
 
 /// 统一执行入口:调用插件 bundle 里的函数,返回原始字节。
@@ -1690,7 +1840,7 @@ pub async fn is_qjs_runtime_initialized(name: String) -> Result<bool> {
     Ok(map.contains_key(&name))
 }
 
-pub async fn build_qjs_runtime(request: QjsRuntimeBuildRequest) -> Result<()> {
+pub async fn build_qjs_runtime(request: QjsRuntimeBuildRequest) -> Result<QjsBundleInstallResult> {
     let mut builder =
         QjsRuntimeBuilder::new(request.runtime_name).filesystem(request.inject_filesystem);
 
@@ -1839,7 +1989,59 @@ pub fn init_rust_functions() -> Result<()> {
         },
     )?;
 
+    register_bridge_route_async_handler(
+        BRIDGE_ROUTE_SAVE_PLUGIN_CONFIG,
+        |runtime, args| async move {
+            let handle = crate::db::plugin_config::app_handle()?;
+            rquickjs_playground::global_handle()
+                .spawn_blocking(move || plugin_config_save_route(handle, &runtime, &args))
+                .await
+                .map_err(|err| anyhow!("save_plugin_config 任务失败: {err}"))?
+        },
+    )?;
+
+    register_bridge_route_async_handler(
+        BRIDGE_ROUTE_LOAD_PLUGIN_CONFIG,
+        |runtime, args| async move {
+            let handle = crate::db::plugin_config::app_handle()?;
+            rquickjs_playground::global_handle()
+                .spawn_blocking(move || plugin_config_load_route(handle, &runtime, &args))
+                .await
+                .map_err(|err| anyhow!("load_plugin_config 任务失败: {err}"))?
+        },
+    )?;
+
     Ok(())
+}
+
+fn plugin_config_save_route(handle: i64, runtime: &str, args: &[Value]) -> Result<Value> {
+    let key = args
+        .first()
+        .and_then(Value::as_str)
+        .context("save_plugin_config 参数无效: 缺少 key")?;
+    let value = args
+        .get(1)
+        .and_then(Value::as_str)
+        .context("save_plugin_config 参数无效: 缺少 value")?;
+    crate::db::plugin_config::save_value(handle, runtime, key, value)?;
+    Ok(Value::String(
+        crate::db::plugin_config::save_response_string(),
+    ))
+}
+
+fn plugin_config_load_route(handle: i64, runtime: &str, args: &[Value]) -> Result<Value> {
+    let key = args
+        .first()
+        .and_then(Value::as_str)
+        .context("load_plugin_config 参数无效: 缺少 key")?;
+    let fallback = args
+        .get(1)
+        .and_then(Value::as_str)
+        .context("load_plugin_config 参数无效: 缺少 fallback")?;
+    let value = crate::db::plugin_config::load_value(handle, runtime, key, fallback)?;
+    Ok(Value::String(
+        crate::db::plugin_config::load_response_string(value),
+    ))
 }
 
 pub fn opencc_convert(text: String, config: String) -> Result<String> {
@@ -1851,7 +2053,8 @@ mod tests {
     use super::{
         HostCacheEntry, QjsFetchImageResult, QjsFetchImageResultCbor, handle_cache_compare_and_set,
         handle_cache_get, handle_cache_set_if_absent, host_cache_store_cell,
-        is_cancelled_error_text, scoped_route_key,
+        is_cancelled_error_text, plugin_config_load_route, plugin_config_save_route,
+        scoped_route_key,
     };
     use ciborium::de::from_reader;
     use image::{DynamicImage, ImageFormat, RgbaImage};
@@ -1863,7 +2066,8 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        init_rust_functions, qjs_drop_runtime, qjs_fetch_image, qjs_task_call, set_http_proxy,
+        QjsRuntimeBuilder, QjsRuntimeBundleBuild, init_rust_functions, qjs_drop_runtime,
+        qjs_fetch_image, qjs_task_call, set_bytecode_app_version, set_http_proxy,
     };
     use rquickjs_playground::HttpClientConfig;
 
@@ -2134,6 +2338,144 @@ mod tests {
         assert_eq!(parsed["isWebp"], true);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bytecode_only_bundle_runs_without_source() {
+        let runtime_name = format!("test-qjs-bytecode-only-{}", std::process::id());
+        let app_version = "test-bytecode-only-app";
+        set_bytecode_app_version(app_version.to_string());
+        let source = "module.exports = { run: () => ({ ok: true }) };";
+        let blob =
+            rquickjs_playground::bytecode::compile_bundle(&runtime_name, source, app_version)
+                .await
+                .expect("compile bundle bytecode");
+
+        let install = QjsRuntimeBuilder::new(&runtime_name)
+            .with_bundle(QjsRuntimeBundleBuild {
+                bundle_name: runtime_name.clone(),
+                bundle_js: String::new(),
+                bytecode: Some(blob),
+            })
+            .build()
+            .await
+            .expect("build runtime from bytecode only");
+        assert!(install.used_bytecode);
+
+        let output = qjs_task_call(
+            runtime_name.clone(),
+            "test-bytecode-only".to_string(),
+            false,
+            None,
+            None,
+            "run".to_string(),
+            "[]".to_string(),
+        )
+        .await;
+        qjs_drop_runtime(runtime_name)
+            .await
+            .expect("drop bytecode-only runtime");
+        let parsed: Value = serde_json::from_slice(&output.expect("call")).expect("parse result");
+        assert_eq!(parsed["ok"], true);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn failed_bundle_replacement_keeps_previous_bundle_registered() {
+        let runtime_name = format!("test-qjs-replace-keeps-old-{}", std::process::id());
+        let bundle_name = format!("{runtime_name}-bundle");
+        QjsRuntimeBuilder::new(runtime_name.clone())
+            .bundle(
+                bundle_name.clone(),
+                "module.exports = { run: () => ({ version: 1 }) };",
+            )
+            .build()
+            .await
+            .expect("install first bundle");
+
+        let call = || {
+            qjs_task_call(
+                runtime_name.clone(),
+                "test-replace-keeps-old".to_string(),
+                false,
+                None,
+                None,
+                "run".to_string(),
+                "[]".to_string(),
+            )
+        };
+
+        let first: Value =
+            serde_json::from_slice(&call().await.expect("call first bundle")).expect("parse");
+        assert_eq!(first["version"], json!(1));
+
+        // 新 bundle 顶层直接抛错：安装失败。替换实现必须先装新的再 unload 旧的，
+        // 否则旧 bundle 会被提前摘掉，同 runtime 上并发的调用就会报
+        // "bundle not found"（首页/云收藏同时做首次初始化时触发）。
+        let failed = QjsRuntimeBuilder::new(runtime_name.clone())
+            .bundle(bundle_name, "throw new Error('bundle load failed');")
+            .build()
+            .await;
+        assert!(failed.is_err(), "throwing bundle should fail to install");
+
+        let again: Value = serde_json::from_slice(
+            &call()
+                .await
+                .expect("previous bundle must stay callable after failed replace"),
+        )
+        .expect("parse");
+        assert_eq!(again["version"], json!(1));
+
+        qjs_drop_runtime(runtime_name)
+            .await
+            .expect("drop test QJS runtime");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_replacement_switches_calls_to_new_source() {
+        let runtime_name = format!("test-qjs-replace-success-{}", std::process::id());
+        let bundle_name = format!("{runtime_name}-bundle");
+        QjsRuntimeBuilder::new(runtime_name.clone())
+            .bundle(
+                bundle_name.clone(),
+                "module.exports = { run: () => ({ version: 1 }) };",
+            )
+            .build()
+            .await
+            .expect("install first bundle");
+
+        QjsRuntimeBuilder::new(runtime_name.clone())
+            .bundle(
+                bundle_name.clone(),
+                "module.exports = { run: () => ({ version: 2 }) };",
+            )
+            .build()
+            .await
+            .expect("replace bundle");
+
+        let output = qjs_task_call(
+            runtime_name.clone(),
+            "test-replace-success".to_string(),
+            false,
+            None,
+            None,
+            "run".to_string(),
+            "[]".to_string(),
+        )
+        .await
+        .expect("call replaced bundle");
+        let parsed: Value = serde_json::from_slice(&output).expect("parse");
+        assert_eq!(parsed["version"], json!(2));
+
+        // 同名替换后当前 bundle 仍是这个名字，不能因为跳过 unload 留下旧名。
+        let raw = super::qjs_current_bundle(runtime_name.clone())
+            .await
+            .expect("read current bundle");
+        let current: Option<String> = serde_json::from_str(&raw).expect("parse current bundle");
+        assert_eq!(current.as_deref(), Some(bundle_name.as_str()));
+
+        qjs_drop_runtime(runtime_name)
+            .await
+            .expect("drop test QJS runtime");
+    }
+
     #[test]
     fn cache_get_should_ignore_expiration_when_gc_is_disabled() {
         let runtime = "test-runtime-cache-get-expired";
@@ -2177,6 +2519,48 @@ mod tests {
             cache.get(&scoped_key).map(|entry| entry.clone().value),
             Some(json!("stale"))
         );
+    }
+
+    #[test]
+    fn plugin_config_routes_return_json_strings_for_legacy_plugins() {
+        let dir = std::env::temp_dir().join("breeze_qjs_plugin_config_route_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("route_{}.sqlite3", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let handle = crate::db::sql::open(path.to_str().unwrap()).unwrap();
+        crate::db::sql::get(handle)
+            .unwrap()
+            .execute_script(
+                r#"CREATE TABLE "PluginConfig" (
+                    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+                    "name" TEXT NOT NULL DEFAULT '',
+                    "config" TEXT NOT NULL DEFAULT ''
+                )"#,
+            )
+            .unwrap();
+
+        // 旧 Dart bridge 返回的是 JSON 字符串，JM 插件只做 JSON.parse(String(r))，
+        // 因此这里必须保持 Value::String 而不是对象。
+        let saved = plugin_config_save_route(handle, "rt", &[json!("k"), json!(r#"{"v":1}"#)])
+            .expect("save route");
+        let Value::String(saved_text) = saved else {
+            panic!("save route must return a JSON string");
+        };
+        assert_eq!(saved_text, r#"{"ok":true}"#);
+
+        let loaded = plugin_config_load_route(handle, "rt", &[json!("k"), json!("null")])
+            .expect("load route");
+        let Value::String(loaded_text) = loaded else {
+            panic!("load route must return a JSON string");
+        };
+        assert_eq!(loaded_text, r#"{"ok":true,"value":{"v":1}}"#);
+        assert_eq!(
+            plugin_config_load_route(handle, "rt", &[json!("missing"), json!("7")]).unwrap(),
+            Value::String(r#"{"ok":true,"value":7}"#.to_string())
+        );
+
+        crate::db::sql::close(handle).unwrap();
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

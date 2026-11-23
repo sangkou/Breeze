@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/device/responsive.dart';
 import 'package:zephyr/main.dart';
 
 /// 管理阅读页临时使用的屏幕方向。

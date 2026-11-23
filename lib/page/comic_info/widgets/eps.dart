@@ -6,7 +6,6 @@ import 'package:zephyr/page/comic_info/json/normal/normal_comic_all_info.dart';
 import 'package:zephyr/page/comic_read/type/chapter_extern.dart';
 import 'package:zephyr/page/download/adapters/download_chapter_adapter.dart';
 import 'package:zephyr/page/download/models/download_chapter.dart';
-import 'package:zephyr/page/download/models/unified_comic_download.dart';
 import 'package:zephyr/page/comic_info/cubit/episode_download_status_cubit.dart';
 import 'package:zephyr/page/comic_info/cubit/episode_selection_cubit.dart';
 import 'package:zephyr/page/comic_info/widgets/episode_download_controller.dart';
@@ -164,23 +163,27 @@ class EpButtonWidget extends StatelessWidget {
     );
   }
 
-  void _openRead(BuildContext context) {
+  Future<void> _openRead(BuildContext context) async {
     final chapter = const DownloadChapterAdapter().fromEp(doc);
-    final local = const DownloadTaskRepository().findDownloadedChapter(
+    final wantRecord =
+        type == ComicEntryType.normal || type == ComicEntryType.history;
+    // 一次 worker 调用：读下载记录 + 解析章节 + 匹配 + 章节总数。
+    final lookup = await const DownloadTaskRepository().lookupDownloadedChapter(
       from: from,
       comicId: comicId,
-      chapterKey: chapter.id,
+      chapterKeys: <String>[chapter.id],
+      includeRecord: wantRecord,
     );
+    final local = lookup.chapter;
     if (local != null && local.images.isEmpty) {
       showErrorToast(t.comicEdit.emptyChapter);
       return;
     }
     // 在线入口统一查库：该章已下载则直接读本地，不再看来源 type。
-    if (type == ComicEntryType.normal || type == ComicEntryType.history) {
-      final record = local == null
-          ? null
-          : const DownloadTaskRepository().findDownloadRecord(from, comicId);
+    if (wantRecord) {
+      final record = lookup.record;
       if (local != null && record != null) {
+        if (!context.mounted) return;
         context.pushRoute(
           ComicReadRoute(
             comicInfo: record,
@@ -194,7 +197,7 @@ class EpButtonWidget extends StatelessWidget {
             storageChapterId: local.storageId ?? '',
             logicalKey: local.id,
             chapterExtern: ChapterExtern.from(local.extern),
-            epsNumber: resolveStoredDownloadChapters(record).length,
+            epsNumber: lookup.chapterCount,
             from: from,
             stringSelectCubit: context.read<StringSelectCubit>(),
           ),
@@ -206,6 +209,7 @@ class EpButtonWidget extends StatelessWidget {
         ? ComicEntryType.normal
         : type;
     final chapterExtern = Map<String, dynamic>.from(doc.extern);
+    if (!context.mounted) return;
     context.pushRoute(
       ComicReadRoute(
         comicInfo: allInfo,

@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/util/get_path.dart';
 import 'package:zephyr/widgets/comic_entry/models/models.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry_info.dart';
@@ -16,8 +16,9 @@ import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry_info.da
 /// 2. 否则取文件夹里最新加入的一本漫画；
 /// 3. 文件夹为空 → 返回 null，由调用方回退到文件夹图标。
 ///
-/// 用户的选择保存在 `<files>/folder_covers.json`（folderSyncId -> 漫画信息），
-/// 不新增 ObjectBox 字段，避免改数据库模型与迁移。
+/// 用户的选择保存在 `<files>/folder_covers.json`（folderSyncId -> 漫画信息）。
+/// 数据库查询是异步的，所以 [coverFor] 只读内存缓存；页面加载完成后调用
+/// [ensureCovers] 批量补齐，再刷新一次卡片。
 class FolderCoverService {
   FolderCoverService._();
 
@@ -75,20 +76,23 @@ class FolderCoverService {
 
   bool hasOverride(String folderSyncId) => _overrides.containsKey(folderSyncId);
 
-  /// 文件夹卡片要显示的封面；null 表示没有可用封面。
+  /// 文件夹卡片要显示的封面；只在内存里取，未命中返回 null（回退图标）。
   ComicSimplifyEntryInfo? coverFor(ComicFolder folder) {
     final override = _overrides[folder.syncId];
     if (override != null) return override;
-    return _autoCover(folder);
+    return _autoCache[folder.syncId];
   }
 
-  ComicSimplifyEntryInfo? _autoCover(ComicFolder folder) {
-    if (_autoCache.containsKey(folder.syncId)) {
-      return _autoCache[folder.syncId];
+  /// 批量补齐自动封面，返回是否有新增。页面在每次加载完成后调用。
+  Future<bool> ensureCovers(Iterable<ComicFolder> folders) async {
+    var changed = false;
+    for (final folder in folders) {
+      if (_overrides.containsKey(folder.syncId)) continue;
+      if (_autoCache.containsKey(folder.syncId)) continue;
+      _autoCache[folder.syncId] = await _firstComicInFolder(folder);
+      changed = true;
     }
-    final info = _firstComicInFolder(folder);
-    _autoCache[folder.syncId] = info;
-    return info;
+    return changed;
   }
 
   /// 书架重新加载时清掉自动封面缓存，避免新增/移动漫画后仍是旧封面。
@@ -124,99 +128,66 @@ class FolderCoverService {
   }
 
   /// 文件夹里的漫画（按加入时间倒序），供封面选择弹窗使用。
-  List<ComicSimplifyEntryInfo> comicsInFolder(ComicFolder folder) {
+  Future<List<ComicSimplifyEntryInfo>> comicsInFolder(
+    ComicFolder folder,
+  ) async {
     final result = <ComicSimplifyEntryInfo>[];
-    final query = _linksQuery(folder);
-    try {
-      for (final link in query.find()) {
-        final info = _resolveEntry(link.comicUniqueKey, folder.type);
-        if (info != null) result.add(info);
-      }
-    } finally {
-      query.close();
+    final links = await database.links.listActiveByFolder(
+      folder.syncId,
+      folder.typeData,
+    );
+    for (final link in links) {
+      final info = await _resolveEntry(link.comicUniqueKey, folder.type);
+      if (info != null) result.add(info);
     }
     return result;
   }
 
-  ComicSimplifyEntryInfo? _firstComicInFolder(ComicFolder folder) {
+  Future<ComicSimplifyEntryInfo?> _firstComicInFolder(
+    ComicFolder folder,
+  ) async {
     try {
-      final query = _linksQuery(folder);
-      try {
-        final link = query.findFirst();
-        if (link == null) return null;
-        return _resolveEntry(link.comicUniqueKey, folder.type);
-      } finally {
-        query.close();
-      }
+      final links = await database.links.listActiveByFolder(
+        folder.syncId,
+        folder.typeData,
+      );
+      if (links.isEmpty) return null;
+      return _resolveEntry(links.first.comicUniqueKey, folder.type);
     } catch (e) {
       logger.e(e);
       return null;
     }
   }
 
-  Query<ComicLink> _linksQuery(ComicFolder folder) {
-    return objectbox.comicLinkBox
-        .query(
-          ComicLink_.folderSyncId
-              .equals(folder.syncId)
-              .and(ComicLink_.typeData.equals(folder.typeData))
-              .and(ComicLink_.deletedAt.isNull()),
-        )
-        .order(ComicLink_.createdAt, flags: Order.descending)
-        .build();
-  }
-
-  /// 把漫画唯一键解析成条目信息；与书架 bloc 里的解析保持同一套规则。
-  ComicSimplifyEntryInfo? _resolveEntry(
+  /// 把漫画唯一键解析成条目信息；与书架加载任务里的解析保持同一套规则。
+  Future<ComicSimplifyEntryInfo?> _resolveEntry(
     String uniqueKey,
     ComicFolderType type,
-  ) {
+  ) async {
     switch (type) {
       case ComicFolderType.favorite:
-        final query = objectbox.unifiedFavoriteBox
-            .query(
-              UnifiedComicFavorite_.uniqueKey
-                  .equals(uniqueKey)
-                  .and(UnifiedComicFavorite_.deleted.equals(false)),
-            )
-            .build();
-        try {
-          final comic = query.findFirst();
-          if (comic == null) return null;
+        for (final comic in await database.favorites.getByKeys([uniqueKey])) {
+          if (comic.deleted) continue;
           return unifiedComicFromUnifiedFavorite(comic).toSimplifyEntryInfo();
-        } finally {
-          query.close();
         }
+        return null;
       case ComicFolderType.download:
-        final query = objectbox.unifiedDownloadBox
-            .query(
-              UnifiedComicDownload_.uniqueKey
-                  .equals(uniqueKey)
-                  .and(UnifiedComicDownload_.deleted.equals(false)),
-            )
-            .build();
-        try {
-          final comic = query.findFirst();
-          if (comic == null) return null;
-          return unifiedComicFromUnifiedDownload(comic).toSimplifyEntryInfo();
-        } finally {
-          query.close();
+        for (final comic in await database.downloads.getShelfByKeys([
+          uniqueKey,
+        ])) {
+          if (comic.deleted) continue;
+          return unifiedComicFromUnifiedDownload(
+            comic,
+            includeRaw: false,
+          ).toSimplifyEntryInfo();
         }
+        return null;
       case ComicFolderType.history:
-        final query = objectbox.unifiedHistoryBox
-            .query(
-              UnifiedComicHistory_.uniqueKey
-                  .equals(uniqueKey)
-                  .and(UnifiedComicHistory_.deleted.equals(false)),
-            )
-            .build();
-        try {
-          final comic = query.findFirst();
-          if (comic == null) return null;
+        for (final comic in await database.histories.getByKeys([uniqueKey])) {
+          if (comic.deleted) continue;
           return unifiedComicFromUnifiedHistory(comic).toSimplifyEntryInfo();
-        } finally {
-          query.close();
         }
+        return null;
     }
   }
 }

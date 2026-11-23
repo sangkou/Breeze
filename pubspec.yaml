@@ -1,10 +1,10 @@
 name: zephyr
 description: "使用Flutter开发的漫画阅读应用，使用插件提供漫画源支持。"
 publish_to: none
-version: 3.0.38+2225
+version: 3.1.0+2226
 
 environment:
-  sdk: ^3.14.0
+  sdk: ^3.13.0
 
 dependencies:
   # 核心依赖
@@ -49,15 +49,16 @@ dependencies:
   typed_data: ^1.4.0 # 类型扩展
 
   # 数据模型与本地存储
-  objectbox: ^5.0.0 # 存储: 本地对象数据库
-  objectbox_flutter_libs: ^5.0.0 # 存储: ObjectBox 原生库
   json_annotation: ^4.12.0 # 模型: JSON 注解
   freezed_annotation: ^3.0.0 # 模型: Freezed 注解
   file_selector: ^1.1.0 # 文件: 文件选择器
+  file_selector_platform_interface: ^2.7.0 # 文件: OHOS 平台实现接口
   shared_preferences: ^2.5.4 # 文件: 键值对存储器
+  shared_preferences_platform_interface: ^2.4.2 # 文件: OHOS 平台实现接口
 
   # 文件、媒体与平台能力
   path_provider: ^2.1.5 # 文件: 常用目录路径
+  path_provider_platform_interface: ^2.1.3 # 文件: OHOS 平台实现接口
   ffi: ^2.1.0 # 工具: FFI 字符串/内存分配
   path: ^1.9.0 # 文件: 路径处理
   open_file: ^4.0.0 # 文件: 系统打开文件
@@ -111,13 +112,12 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
+  archive: ^4.6.0 # 测试: 构造 zip/tar 导入夹具
   flutter_lints: ^6.0.0 # 规范: 官方 Lint 规则
 
   # 代码生成
   build_runner: ^2.0.0 # 生成: 代码生成执行器
   auto_route_generator: ^10.0.0 # 生成: 路由代码生成
-  objectbox_generator: ^5.0.0
-  # 生成: ObjectBox 模型生成
   freezed: ^4.0.1 # 生成: Freezed 代码生成
   json_serializable: ^6.14.0 # 生成: JSON 序列化生成
 
@@ -133,11 +133,6 @@ dependency_overrides:
       url: https://github.com/deretame/flutter-permission-handler.git
       ref: 11aea60
       path: permission_handler_windows
-  objectbox_generator:
-    git:
-      url: https://github.com/objectbox/objectbox-dart.git
-      path: generator
-      ref: d28e393de3e7dbba1e0925999fd9dfeb9f9a721c
 
 # Flutter 配置
 flutter:
@@ -162,11 +157,6 @@ flutter:
     - asset/image/bika_image/cat_random.jpg
     - asset/image/assets/default_cover.png
     - .env.proxy
-objectbox:
-  # Writes objectbox-model.json and objectbox.g.dart to lib/custom (and test/custom).
-  output_dir:
-    lib: object_box
-    test: object_box
 
 sentry:
   upload_debug_symbols: true

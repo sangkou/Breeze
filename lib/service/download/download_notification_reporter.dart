@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/notification.dart';
 import 'package:zephyr/service/download/download_progress_reporter.dart';
 import 'package:zephyr/widgets/toast.dart';
 
@@ -22,6 +24,14 @@ class DownloadNotificationReporter extends DownloadProgressReporter {
   @override
   Future<void> sendNotification(String title, String body) async {
     try {
+      if (isOhos) {
+        await publishOhosNotification(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000 % 2147483647,
+          title: title,
+          body: body,
+        );
+        return;
+      }
       await _plugin.show(
         id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         title: title,

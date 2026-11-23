@@ -7,14 +7,13 @@ import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/plugin/qjs_download_runtime.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
 import 'package:zephyr/page/download/models/unified_comic_download.dart';
 import 'package:zephyr/service/download/download_asset_store.dart';
 import 'package:zephyr/src/rust/api/data_backup.dart';
 import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 const String _kProcessedComicInfoFile = 'processed_comic_info.json';
@@ -241,11 +240,8 @@ Future<ComicImportResult> _importComic(
   );
 
   // 先检查是否已存在，让用户决定是否覆盖，避免先把图片复制到磁盘后再取消。
-  final existing = objectbox.unifiedDownloadBox
-      .query(UnifiedComicDownload_.uniqueKey.equals(uniqueKey))
-      .build()
-      .find();
-  if (existing.isNotEmpty) {
+  final existing = await database.downloads.getByKey(uniqueKey);
+  if (existing != null) {
     final shouldOverwrite = await onConfirmOverwrite?.call(title) ?? false;
     if (!shouldOverwrite) {
       throw ComicImportCancelledException(
@@ -309,16 +305,16 @@ Future<ComicImportResult> _importComic(
     schemaVersion: 2,
   );
 
-  if (existing.isNotEmpty) {
-    objectbox.unifiedDownloadBox.removeMany(existing.map((e) => e.id).toList());
+  if (existing != null) {
+    await database.downloads.removeById(existing.id);
   }
 
-  objectbox.unifiedDownloadBox.put(entity);
-  ComicLinkService.addComic(uniqueKey, null, ComicFolderType.download);
+  await database.downloads.put(entity);
+  await ComicLinkService.addComic(uniqueKey, null, ComicFolderType.download);
 
   // 导入/覆盖导入后更新 ComicLink 的创建/更新时间，使漫画在书架排序中体现为最新。
   final nowMillis = DateTime.now().toUtc().millisecondsSinceEpoch;
-  final links = ComicLinkService.linksOfComic(
+  final links = await ComicLinkService.linksOfComic(
     uniqueKey,
     ComicFolderType.download,
   );
@@ -326,7 +322,7 @@ Future<ComicImportResult> _importComic(
     link
       ..createdAt = nowMillis
       ..updatedAt = nowMillis;
-    objectbox.comicLinkBox.put(link);
+    await database.links.put(link);
   }
 
   return ComicImportResult(comicId: comicId, title: title, source: source);

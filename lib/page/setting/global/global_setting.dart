@@ -8,6 +8,7 @@ import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/page/comic_read/widgets/settings/reader_settings_sheet.dart';
 import 'package:zephyr/page/setting/common/setting_ui.dart';
 import 'package:zephyr/page/setting/real_sr/service/real_sr_super_resolution.dart';
+import 'package:zephyr/util/ohos/platform.dart';
 
 @RoutePage()
 class GlobalSettingPage extends StatefulWidget {
@@ -23,7 +24,10 @@ class _GlobalSettingPageState extends State<GlobalSettingPage> {
   @override
   void initState() {
     super.initState();
-    _realSrAvailable = RealSrSuperResolution.isDeviceSupported;
+    // OHOS 暂无 ncnn/Vulkan 超分后端，直接隐藏入口。
+    _realSrAvailable = isOhos
+        ? Future<bool>.value(false)
+        : RealSrSuperResolution.isDeviceSupported;
   }
 
   Future<void> _openSubPage(PageRouteInfo route) async {

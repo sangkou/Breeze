@@ -28,7 +28,8 @@ Future<void> _pumpDialog(
     required String token,
     required double x,
     required List<SliderTrackPoint> track,
-  })? verifyChallenge,
+  })?
+  verifyChallenge,
   List<Map<String, dynamic>>? seenCalls,
 }) async {
   await tester.pumpWidget(
@@ -87,18 +88,19 @@ void main() {
                       createFnPath: 'create',
                       verifyFnPath: 'verify',
                       createChallenge: () async => _fakeChallenge(),
-                      verifyChallenge: ({
-                        required String token,
-                        required double x,
-                        required List<SliderTrackPoint> track,
-                      }) async {
-                        seenCalls.add({
-                          'token': token,
-                          'x': x,
-                          'track': track,
-                        });
-                        return 'pass-xyz';
-                      },
+                      verifyChallenge:
+                          ({
+                            required String token,
+                            required double x,
+                            required List<SliderTrackPoint> track,
+                          }) async {
+                            seenCalls.add({
+                              'token': token,
+                              'x': x,
+                              'track': track,
+                            });
+                            return 'pass-xyz';
+                          },
                     ),
                   );
                 },
@@ -136,14 +138,15 @@ void main() {
       var calls = 0;
       await _pumpDialog(
         tester,
-        verifyChallenge: ({
-          required String token,
-          required double x,
-          required List<SliderTrackPoint> track,
-        }) async {
-          calls++;
-          throw StateError('驗證失敗,請重試');
-        },
+        verifyChallenge:
+            ({
+              required String token,
+              required double x,
+              required List<SliderTrackPoint> track,
+            }) async {
+              calls++;
+              throw StateError('驗證失敗,請重試');
+            },
       );
       await tester.drag(find.text('➜'), const Offset(120, 0));
       await tester.pumpAndSettle();

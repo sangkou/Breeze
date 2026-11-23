@@ -4,7 +4,7 @@ import 'package:zephyr/network/http/plugin/unauthorized_payload.dart';
 import 'package:zephyr/network/http/plugin/unified_comic_plugin.dart';
 import 'package:zephyr/network/http/plugin/unified_plugin_envelope.dart';
 import 'package:zephyr/page/comic_list/cubit/plugin_paged_comic_list_state.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 import 'package:zephyr/util/json/json_dispose.dart';
 import 'package:zephyr/util/json/json_value.dart';
 import 'package:zephyr/widgets/comic_entry/models/models.dart';
@@ -75,10 +75,13 @@ class PluginPagedComicListCubit extends Cubit<PluginPagedComicListState> {
         extern: externBuilder(page),
         suppressNeedLoginEvent: suppressNeedLoginEvent,
       );
-      final envelope = UnifiedPluginEnvelope.fromMap(pluginResponse);
+      final envelope = UnifiedPluginEnvelope.fromMap(
+        pluginResponse.data,
+        source: pluginResponse.source,
+      );
       final data = asJsonMap(envelope.data);
-      final source = envelope.source.trim().isNotEmpty
-          ? envelope.source.trim()
+      final source = pluginResponse.source.trim().isNotEmpty
+          ? pluginResponse.source.trim()
           : pluginId;
       final items = asJsonList(data['items'])
           .map(_sanitizePluginItemMap)

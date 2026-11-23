@@ -2,16 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:worker_manager/worker_manager.dart';
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/object_box.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/comic_info/json/normal/normal_comic_all_info.dart'
     as normal;
 import 'package:zephyr/page/download/models/unified_comic_download.dart';
 import 'package:zephyr/src/rust/api/qjs.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/async/worker_pool.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 
 const _legacyJmImageBaseUrl = 'https://cdn-msp12.jmdanjonproxy.xyz';
 
@@ -29,38 +28,32 @@ String _legacyJmImageUrl(String chapterId, String imageName) {
   return '$_legacyJmImageBaseUrl/media/photos/$chapterId/$imageName';
 }
 
-Future<void> migrateV1ToV2() async {
+Future<void> migrateV1ToV2(Database database) async {
   final downloadRoot = await getDownloadPath();
   _downloadRoot = downloadRoot;
-  await _migrateV1ToV2InCurrentIsolate();
+  await _migrateV1ToV2InCurrentIsolate(database);
 }
 
-Future<void> _migrateV1ToV2InCurrentIsolate() async {
-  final box = objectbox;
-  box.downloadTaskBox.removeAll();
-  _migrateLegacySearchHistory(box);
-  _migrateLegacyPluginSettings(box);
-  _debugLogMigrationSnapshot('before', _buildLegacySnapshot(box));
-  final proxy = box.userSettingBox.get(1)?.bikaSetting.proxy ?? 3;
+Future<void> _migrateV1ToV2InCurrentIsolate(Database database) async {
+  await database.downloadTasks.removeAll();
+  await _migrateLegacySearchHistory(database);
+  await _migrateLegacyPluginSettings(database);
+  _debugLogMigrationSnapshot('before', await _buildLegacySnapshot(database));
+  final proxy = (await database.userSettings.get())?.bikaSetting.proxy ?? 3;
 
-  final jmFavoritesJson = box.jmFavoriteBox
-      .getAll()
+  final jmFavoritesJson = (await database.legacy.listJmFavorites())
       .map((e) => e.toJson())
       .toList();
-  final bikaHistoriesJson = box.bikaHistoryBox
-      .getAll()
+  final bikaHistoriesJson = (await database.legacy.listBikaHistories())
       .map((e) => e.toJson())
       .toList();
-  final jmHistoriesJson = box.jmHistoryBox
-      .getAll()
+  final jmHistoriesJson = (await database.legacy.listJmHistories())
       .map((e) => e.toJson())
       .toList();
-  final bikaDownloadsJson = box.bikaDownloadBox
-      .getAll()
+  final bikaDownloadsJson = (await database.legacy.listBikaDownloads())
       .map((e) => e.toJson())
       .toList();
-  final jmDownloadsJson = box.jmDownloadBox
-      .getAll()
+  final jmDownloadsJson = (await database.legacy.listJmDownloads())
       .map((e) => e.toJson())
       .toList();
 
@@ -89,28 +82,25 @@ Future<void> _migrateV1ToV2InCurrentIsolate() async {
       .map((e) => UnifiedComicDownload.fromJson(e))
       .toList();
 
-  await _seedBuiltinPlugins(box);
-  box.store.runInTransaction(TxMode.write, () {
-    box.unifiedFavoriteBox.removeAll();
-    box.unifiedHistoryBox.removeAll();
-    box.unifiedDownloadBox.removeAll();
+  await _seedBuiltinPlugins(database);
+  await database.favorites.removeAll();
+  await database.histories.removeAll();
+  await database.downloads.removeAll();
+  if (favorites.isNotEmpty) {
+    await database.favorites.putMany(favorites);
+  }
+  if (histories.isNotEmpty) {
+    await database.histories.putMany(histories);
+  }
+  if (downloads.isNotEmpty) {
+    await database.downloads.putMany(downloads);
+  }
 
-    if (favorites.isNotEmpty) {
-      box.unifiedFavoriteBox.putMany(favorites);
-    }
-    if (histories.isNotEmpty) {
-      box.unifiedHistoryBox.putMany(histories);
-    }
-    if (downloads.isNotEmpty) {
-      box.unifiedDownloadBox.putMany(downloads);
-    }
-  });
-
-  _debugLogMigrationSnapshot('after', _buildUnifiedSnapshot(box));
+  _debugLogMigrationSnapshot('after', await _buildUnifiedSnapshot(database));
 }
 
-void _migrateLegacyPluginSettings(ObjectBox objectbox) {
-  final user = objectbox.userSettingBox.get(1);
+Future<void> _migrateLegacyPluginSettings(Database database) async {
+  final user = await database.userSettings.get();
   if (user == null) {
     return;
   }
@@ -118,8 +108,8 @@ void _migrateLegacyPluginSettings(ObjectBox objectbox) {
   final bika = user.bikaSetting;
   final jm = user.jmSetting;
 
-  final bikaConfig = _upsertPluginConfigData(
-    objectbox,
+  final bikaConfig = await _upsertPluginConfigData(
+    database,
     pluginUuid: _kBikaPluginUuid,
     patches: {
       'auth.account': bika.account,
@@ -139,8 +129,8 @@ void _migrateLegacyPluginSettings(ObjectBox objectbox) {
     logger.d('[migration_v1_to_v2][settings] migrated bika plugin settings');
   }
 
-  final jmConfig = _upsertPluginConfigData(
-    objectbox,
+  final jmConfig = await _upsertPluginConfigData(
+    database,
     pluginUuid: _kJmPluginUuid,
     patches: {
       'auth.account': jm.account,
@@ -154,14 +144,12 @@ void _migrateLegacyPluginSettings(ObjectBox objectbox) {
   }
 }
 
-bool _upsertPluginConfigData(
-  ObjectBox objectbox, {
+Future<bool> _upsertPluginConfigData(
+  Database database, {
   required String pluginUuid,
   required Map<String, dynamic> patches,
-}) {
-  final box = objectbox.pluginConfigBox;
-  final found = box.query(PluginConfig_.name.equals(pluginUuid)).build().find();
-  final existing = found.isNotEmpty ? found.first : null;
+}) async {
+  final existing = await database.plugins.getConfigByName(pluginUuid);
   final data = _decodeJsonObject(existing?.config);
 
   var changed = false;
@@ -189,10 +177,12 @@ bool _upsertPluginConfigData(
   }
 
   if (existing == null) {
-    box.put(PluginConfig(name: pluginUuid, config: jsonEncode(data)));
+    await database.plugins.putConfig(
+      PluginConfig(name: pluginUuid, config: jsonEncode(data)),
+    );
   } else {
     existing.config = jsonEncode(data);
-    box.put(existing);
+    await database.plugins.putConfig(existing);
   }
   return true;
 }
@@ -272,26 +262,19 @@ Future<void> migrateLegacyDownloadFilesToPluginUuidLayout() async {
   logger.d('[migration_v1_to_v2][files] done');
 }
 
-Future<void> _seedBuiltinPlugins(ObjectBox objectbox) async {
+Future<void> _seedBuiltinPlugins(Database database) async {
   final now = DateTime.now().toUtc();
 
-  final existing = objectbox.pluginInfoBox
-      .query(
-        PluginInfo_.uuid
-            .equals(_kBikaPluginUuid)
-            .or(PluginInfo_.uuid.equals(_kJmPluginUuid)),
-      )
-      .build()
-      .find();
-  final existingByUuid = {for (final item in existing) item.uuid: item};
+  final existingBika = await database.plugins.getInfoByUuid(_kBikaPluginUuid);
+  final existingJm = await database.plugins.getInfoByUuid(_kJmPluginUuid);
 
   final upserts = <PluginInfo>[];
 
-  final bikaHistorys = objectbox.bikaHistoryBox.getAll().length;
+  final bikaHistorys = (await database.legacy.listBikaHistories()).length;
   if (bikaHistorys > 0) {
     upserts.add(
       _buildBuiltinPluginInfo(
-        existingByUuid[_kBikaPluginUuid],
+        existingBika,
         uuid: _kBikaPluginUuid,
         builtinBundle: getJsBundle(name: _kBikaPluginUuid),
         now: now,
@@ -299,11 +282,11 @@ Future<void> _seedBuiltinPlugins(ObjectBox objectbox) async {
     );
   }
 
-  final jmHistorys = objectbox.jmHistoryBox.getAll().length;
+  final jmHistorys = (await database.legacy.listJmHistories()).length;
   if (jmHistorys > 0) {
     upserts.add(
       _buildBuiltinPluginInfo(
-        existingByUuid[_kJmPluginUuid],
+        existingJm,
         uuid: _kJmPluginUuid,
         builtinBundle: getJsBundle(name: _kJmPluginUuid),
         now: now,
@@ -311,7 +294,7 @@ Future<void> _seedBuiltinPlugins(ObjectBox objectbox) async {
     );
   }
 
-  if (upserts.isNotEmpty) objectbox.pluginInfoBox.putMany(upserts);
+  if (upserts.isNotEmpty) await database.plugins.putInfosWithScripts(upserts);
 }
 
 PluginInfo _buildBuiltinPluginInfo(
@@ -343,8 +326,8 @@ PluginInfo _buildBuiltinPluginInfo(
   );
 }
 
-void _migrateLegacySearchHistory(ObjectBox objectbox) {
-  final user = objectbox.userSettingBox.get(1);
+Future<void> _migrateLegacySearchHistory(Database database) async {
+  final user = await database.userSettings.get();
   if (user == null) {
     return;
   }
@@ -360,7 +343,7 @@ void _migrateLegacySearchHistory(ObjectBox objectbox) {
   logger.d(
     "user.globalSetting.compatibleVersion : ${user.globalSetting.compatibleVersion}",
   );
-  objectbox.userSettingBox.put(user);
+  await database.userSettings.put(user);
 }
 
 String _migrateSearchHistoryEntry(String raw) {
@@ -403,43 +386,35 @@ void _debugLogMigrationSnapshot(String stage, Map<String, dynamic> snapshot) {
   logger.d('[migration_v1_to_v2][$stage] snapshot end');
 }
 
-Map<String, dynamic> _buildLegacySnapshot(ObjectBox objectbox) {
+Future<Map<String, dynamic>> _buildLegacySnapshot(Database database) async {
   return {
-    'jmFavorite': objectbox.jmFavoriteBox
-        .getAll()
+    'jmFavorite': (await database.legacy.listJmFavorites())
         .map((e) => e.toJson())
         .toList(),
-    'bikaHistory': objectbox.bikaHistoryBox
-        .getAll()
+    'bikaHistory': (await database.legacy.listBikaHistories())
         .map((e) => e.toJson())
         .toList(),
-    'jmHistory': objectbox.jmHistoryBox
-        .getAll()
+    'jmHistory': (await database.legacy.listJmHistories())
         .map((e) => e.toJson())
         .toList(),
-    'bikaDownload': objectbox.bikaDownloadBox
-        .getAll()
+    'bikaDownload': (await database.legacy.listBikaDownloads())
         .map((e) => e.toJson())
         .toList(),
-    'jmDownload': objectbox.jmDownloadBox
-        .getAll()
+    'jmDownload': (await database.legacy.listJmDownloads())
         .map((e) => e.toJson())
         .toList(),
   };
 }
 
-Map<String, dynamic> _buildUnifiedSnapshot(ObjectBox objectbox) {
+Future<Map<String, dynamic>> _buildUnifiedSnapshot(Database database) async {
   return {
-    'unifiedFavorite': objectbox.unifiedFavoriteBox
-        .getAll()
+    'unifiedFavorite': (await database.favorites.getAll())
         .map((e) => e.toJson())
         .toList(),
-    'unifiedHistory': objectbox.unifiedHistoryBox
-        .getAll()
+    'unifiedHistory': (await database.histories.getAll())
         .map((e) => e.toJson())
         .toList(),
-    'unifiedDownload': objectbox.unifiedDownloadBox
-        .getAll()
+    'unifiedDownload': (await database.downloads.getAll())
         .map((e) => e.toJson())
         .toList(),
   };
@@ -468,7 +443,7 @@ Future<List<Map<String, dynamic>>> _buildFavoritesJsonOnWorker(
   final payload = jmFavoritesJson
       .map((item) => Map<String, dynamic>.from(item))
       .toList();
-  return workerManager.execute(() => _buildFavoritesOnCompute(payload));
+  return runInIsolate(_buildFavoritesOnCompute, payload);
 }
 
 Future<List<Map<String, dynamic>>> _buildHistoriesJsonOnWorker(
@@ -483,7 +458,7 @@ Future<List<Map<String, dynamic>>> _buildHistoriesJsonOnWorker(
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList(),
   };
-  return workerManager.execute(() => _buildHistoriesOnCompute(safePayload));
+  return runInIsolate(_buildHistoriesOnCompute, safePayload);
 }
 
 Future<List<Map<String, dynamic>>> _buildDownloadsJsonOnWorker(
@@ -499,7 +474,7 @@ Future<List<Map<String, dynamic>>> _buildDownloadsJsonOnWorker(
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList(),
   };
-  return workerManager.execute(() => _buildDownloadsOnCompute(safePayload));
+  return runInIsolate(_buildDownloadsOnCompute, safePayload);
 }
 
 List<Map<String, dynamic>> _buildFavoritesOnCompute(

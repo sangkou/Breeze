@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/bookshelf/service/comic_folder_service.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
 import 'package:zephyr/page/comic_info/json/normal/normal_comic_all_info.dart';
@@ -26,20 +25,28 @@ NormalComicAllInfo _fakeNormalInfo(String comicId) {
 }
 
 void main() {
-  setUpAll(TestObjectBoxHelper.setUpTestObjectBox);
-  tearDownAll(TestObjectBoxHelper.tearDownTestObjectBox);
-  tearDown(TestObjectBoxHelper.cleanComicFolderBoxes);
+  setUpAll(TestDatabaseHelper.setUpTestDatabase);
+  tearDownAll(TestDatabaseHelper.tearDownTestDatabase);
+  tearDown(TestDatabaseHelper.cleanComicFolderBoxes);
+
+  Future<String> folderPath(ComicFolder folder) async {
+    final all = await database.folders.getAll();
+    return ComicFolderService.folderPath(
+      folder,
+      syncIdMap: {for (final f in all) f.syncId: f},
+    );
+  }
 
   group('setLocalComicFavoriteFolders', () {
     test('未收藏时长按建收藏并挂到所选文件夹，不只挂根目录', () async {
       const from = 'test';
       const comicId = 'c1';
-      final folder = ComicFolderService.createFolder(
+      final folder = await ComicFolderService.createFolder(
         '',
         'f',
         ComicFolderType.favorite,
       );
-      final path = ComicFolderService.folderPath(folder);
+      final path = await folderPath(folder);
       final normalInfo = _fakeNormalInfo(comicId);
 
       final result = await setLocalComicFavoriteFolders(
@@ -51,7 +58,7 @@ void main() {
       expect(result, isTrue);
       expect(await isLocalComicCollected(from: from, comicId: comicId), isTrue);
       expect(
-        localComicFavoriteFolderPaths(from: from, comicId: comicId),
+        await localComicFavoriteFolderPaths(from: from, comicId: comicId),
         {path},
       );
     });
@@ -59,18 +66,18 @@ void main() {
     test('已收藏时重设为不相交文件夹：先加后删，本体不被误删', () async {
       const from = 'test';
       const comicId = 'c2';
-      final f1 = ComicFolderService.createFolder(
+      final f1 = await ComicFolderService.createFolder(
         '',
         'f1',
         ComicFolderType.favorite,
       );
-      final f2 = ComicFolderService.createFolder(
+      final f2 = await ComicFolderService.createFolder(
         '',
         'f2',
         ComicFolderType.favorite,
       );
-      final p1 = ComicFolderService.folderPath(f1);
-      final p2 = ComicFolderService.folderPath(f2);
+      final p1 = await folderPath(f1);
+      final p2 = await folderPath(f2);
       final normalInfo = _fakeNormalInfo(comicId);
 
       await setLocalComicFavoriteFolders(
@@ -85,21 +92,18 @@ void main() {
       );
 
       // 本体仍在：中间态不能触发“最后一个链接删除→本体标记删除”。
-      final stored = objectbox.unifiedFavoriteBox
-          .query(UnifiedComicFavorite_.uniqueKey.equals('test:c2'))
-          .build()
-          .findFirst();
+      final stored = await database.favorites.getByKey('test:c2');
       expect(stored, isNotNull);
       expect(stored!.deleted, isFalse);
       expect(
-        localComicFavoriteFolderPaths(from: from, comicId: comicId),
+        await localComicFavoriteFolderPaths(from: from, comicId: comicId),
         {p2},
       );
       expect(
-        ComicLinkService.linksOfComic(
+        (await ComicLinkService.linksOfComic(
           'test:c2',
           ComicFolderType.favorite,
-        ).length,
+        )).length,
         1,
       );
     });
@@ -107,12 +111,12 @@ void main() {
     test('空集合不做任何改动', () async {
       const from = 'test';
       const comicId = 'c3';
-      final folder = ComicFolderService.createFolder(
+      final folder = await ComicFolderService.createFolder(
         '',
         'f',
         ComicFolderType.favorite,
       );
-      final path = ComicFolderService.folderPath(folder);
+      final path = await folderPath(folder);
       final normalInfo = _fakeNormalInfo(comicId);
 
       await setLocalComicFavoriteFolders(
@@ -128,7 +132,7 @@ void main() {
 
       expect(await isLocalComicCollected(from: from, comicId: comicId), isTrue);
       expect(
-        localComicFavoriteFolderPaths(from: from, comicId: comicId),
+        await localComicFavoriteFolderPaths(from: from, comicId: comicId),
         {path},
       );
     });
@@ -136,7 +140,10 @@ void main() {
 
   group('autoCloudCollectOnLocalFavorite 开关', () {
     test('默认关闭', () {
-      expect(const GlobalSettingState().autoCloudCollectOnLocalFavorite, isFalse);
+      expect(
+        const GlobalSettingState().autoCloudCollectOnLocalFavorite,
+        isFalse,
+      );
     });
 
     test('旧版 JSON 缺字段回落 false，且往返保持', () {

@@ -11,8 +11,22 @@ void main(List<String> args) async {
       return;
     }
 
+    final codeConfig = input.config.code;
+    // OpenHarmony 不走 native assets：`native_toolchain_rust` / `code_assets`
+    // 目前没有可靠的 OHOS 映射。libwindcore.so 由
+    // `script/build/build_ohos.dart` 交叉编译并放进
+    // `ohos/entry/libs/arm64-v8a/`，由 HAP 直接打包，FRB loader 会
+    // 用 `DynamicLibrary.open('libwindcore.so')` 加载。
+    // Flutter OH 把 OHOS 目标上报成 `target_os: linux`，code_assets 也没有
+    // `OS.ohos`，所以只能由构建脚本写标记。裸 `flutter build hap` 不会创建
+    // 标记，会落回下面的 RustBuilder 并失败——OHOS 构建统一走
+    // `script/build/build_ohos.dart`。
+    if (codeConfig.targetOS.name == 'ohos' || _isOhosBuild(input)) {
+      return;
+    }
+
     final extraCargoEnvironmentVariables = _extraCargoEnvironmentVariables(
-      input.config.code,
+      codeConfig,
       input.packageRoot.toFilePath(),
     );
 
@@ -268,3 +282,14 @@ String? _detectClangVersion(String llvmBase) {
 }
 
 String _exeSuffix() => Platform.isWindows ? '.exe' : '';
+
+/// `build_ohos.dart --hap` 在构建期间写入的标记。
+///
+/// hvigor 会过滤自定义环境变量，所以用项目文件标记传递「本次是 OHOS
+/// 构建」，避免裸 `flutter build hap` 和桌面构建混淆。
+bool _isOhosBuild(BuildInput input) {
+  final marker = File(
+    p.join(input.packageRoot.toFilePath(), '.dart_tool', 'ohos_build_marker'),
+  );
+  return marker.existsSync();
+}

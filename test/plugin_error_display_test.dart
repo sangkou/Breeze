@@ -1,7 +1,8 @@
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zephyr/network/http/plugin/qjs_call_exception.dart';
 import 'package:zephyr/network/http/plugin/unauthorized_payload.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 
 void main() {
   test('simplify JS plugin error keeps Error: line only', () {
@@ -63,11 +64,27 @@ void main() {
         fallbackPluginId: 'fallback',
       );
       expect(payload, isNotNull);
-      expect(payload!.pluginId, 'pid');
+      expect(payload!.pluginId, 'fallback');
       expect(payload.message, '登录过期，请重新登录');
     } finally {
       setSimplifyPluginErrorDisplay(enabled: false);
     }
+  });
+
+  test('unauthorized ignores plugin-reported short source', () {
+    const loginMessage =
+        '[bundle:dba2a6cf-c495-4416-accf-c29263ab4016 '
+        'fn:getCloudFavoriteData args:[{"extern":{"favcat":"a","sort":"f"}}] '
+        'source:dba2a6cf-c495-4416-accf-c29263ab4016.cjs] '
+        '{"type":"unauthorized","source":"ehentai","message":"请先登录后再查看收藏"}';
+    const invokedUuid = 'dba2a6cf-c495-4416-accf-c29263ab4016';
+
+    final payload = parseUnauthorizedPayload(
+      const QjsCallException(source: invokedUuid, message: loginMessage),
+      fallbackPluginId: invokedUuid,
+    );
+    expect(payload!.pluginId, invokedUuid);
+    expect(payload.message, '请先登录后再查看收藏');
   });
 
   test('extractPluginErrorRawText rejects non-AnyhowException', () {

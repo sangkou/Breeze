@@ -8,7 +8,6 @@ import 'package:zephyr/widgets/toast.dart';
 
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/picture/picture.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/config/router/router.gr.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry_info.dart';
@@ -504,43 +503,22 @@ class ComicSimplifyEntry extends StatelessWidget {
 
   Future<void> _deleteHistory() async {
     final uniqueKey = '${info.from.trim()}:${info.id}';
-    final temp = objectbox.unifiedHistoryBox
-        .query(UnifiedComicHistory_.uniqueKey.equals(uniqueKey))
-        .build()
-        .findFirst();
-
-    if (temp != null) {
-      temp.deleted = true;
-      temp.updatedAt = DateTime.now().toUtc();
-      objectbox.unifiedHistoryBox.put(temp);
-    }
+    await database.histories.markDeletedByKey(uniqueKey);
   }
 
   Future<void> _deleteDownload() async {
     final uniqueKey = '${info.from.trim()}:${info.id}';
-    final temp = objectbox.unifiedDownloadBox
-        .query(UnifiedComicDownload_.uniqueKey.equals(uniqueKey))
-        .build()
-        .findFirst();
+    final temp = await database.downloads.getByKey(uniqueKey);
 
     if (temp != null) {
-      objectbox.unifiedDownloadBox.remove(temp.id);
+      await database.downloads.removeById(temp.id);
       await _deleteDownloadDirectory(info.id);
     }
   }
 
   Future<void> _deleteFavorite() async {
     final uniqueKey = '${info.from.trim()}:${info.id}';
-    final temp = objectbox.unifiedFavoriteBox
-        .query(UnifiedComicFavorite_.uniqueKey.equals(uniqueKey))
-        .build()
-        .findFirst();
-
-    if (temp != null) {
-      temp.deleted = true;
-      temp.updatedAt = DateTime.now().toUtc();
-      objectbox.unifiedFavoriteBox.put(temp);
-    }
+    await database.favorites.markDeletedByKey(uniqueKey);
   }
 
   Future<void> _deleteDownloadDirectory(String id) async {

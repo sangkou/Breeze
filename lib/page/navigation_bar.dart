@@ -17,14 +17,15 @@ import 'package:zephyr/service/lifecycle/foreground_task/foreground_task_service
 import 'package:zephyr/service/lifecycle/notification_service.dart';
 import 'package:zephyr/service/update/check_update.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
-import 'package:zephyr/util/error_filter.dart';
-import 'package:zephyr/util/manage_cache.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/storage/manage_cache.dart';
 import 'package:zephyr/widgets/memory/memory_overlay_widget.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/sync/sync_service.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/async/debouncer.dart';
+import 'package:zephyr/util/device/responsive.dart';
 import 'package:zephyr/util/event/event.dart';
 import 'package:zephyr/widgets/dialog.dart';
 import 'package:zephyr/page/bookshelf/bookshelf.dart';
@@ -52,6 +53,10 @@ class _NavigationBarState extends State<NavigationBar> {
   DateTime? _lastToastShownAt;
   (ToastType, String?, String, Duration)? _lastToastEvent;
   late HideOnScrollSettings hideOnScrollSettings;
+  Timer? _autoSyncTimer;
+  StreamSubscription<GlobalSettingState>? _globalSettingSubscription;
+  late Duration _autoSyncInterval;
+  bool _autoSyncRunning = false;
 
   static bool _notificationsInitialized = false; // ← 使用静态变量，跨实例共享
   bool _isInitializingNotifications = false;
@@ -64,15 +69,15 @@ class _NavigationBarState extends State<NavigationBar> {
       checkUpdate(context);
       _autoSync();
       manageCacheSize(context);
-      DownloadQueueManager.instance.resetStuckTasks();
-      DownloadQueueManager.instance.watchTasks(
+      await DownloadQueueManager.instance.resetStuckTasks();
+      await DownloadQueueManager.instance.watchTasks(
         startupResumeDelay: const Duration(minutes: 1),
       );
       if (Platform.isAndroid) {
         await ForegroundTaskService.instance.syncOnAppStart();
       }
     });
-    final globalSetting = objectbox.userSettingBox.get(1)!.globalSetting;
+    final globalSetting = context.read<GlobalSettingCubit>().state;
     _selectedBaseIndex = _normalizeBaseIndex(
       globalSetting.welcomePageNum,
       globalSetting,
@@ -85,11 +90,24 @@ class _NavigationBarState extends State<NavigationBar> {
     initializeNotificationsOnce();
     _scheduleFollowUpdateCheck(context);
 
-    // 每隔 5 分钟执行一次
-    const duration = Duration(minutes: 5);
-    Timer.periodic(duration, (Timer timer) async {
-      await _autoSync();
-    });
+    // 自动同步间隔来自同步设置；设置变化时重建定时器。
+    _autoSyncInterval = globalSetting.syncSetting.syncIntervalUnit.durationFor(
+      globalSetting.syncSetting.syncInterval,
+    );
+    _restartAutoSyncTimer();
+    _globalSettingSubscription = context
+        .read<GlobalSettingCubit>()
+        .stream
+        .listen((state) {
+          final next = state.syncSetting.syncIntervalUnit.durationFor(
+            state.syncSetting.syncInterval,
+          );
+          if (next == _autoSyncInterval) {
+            return;
+          }
+          _autoSyncInterval = next;
+          _restartAutoSyncTimer();
+        });
 
     // 用来手动触发同步
     eventBus.on<NoticeSync>().listen((event) {
@@ -107,6 +125,8 @@ class _NavigationBarState extends State<NavigationBar> {
 
   @override
   void dispose() {
+    _globalSettingSubscription?.cancel();
+    _autoSyncTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -386,35 +406,50 @@ class _NavigationBarState extends State<NavigationBar> {
     return _pickVisible(state, all);
   }
 
+  void _restartAutoSyncTimer() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(_autoSyncInterval, (_) async {
+      await _autoSync();
+    });
+  }
+
   Future<void> _autoSync({bool force = false}) async {
-    final globalSettingCubit = context.read<GlobalSettingCubit>();
-    final globalState = globalSettingCubit.state;
-
-    if (!force && globalState.syncSetting.autoSync == false) {
+    if (_autoSyncRunning) {
       return;
     }
-
-    if (!isSyncServiceConfigured(globalState)) {
-      return;
-    }
-
+    _autoSyncRunning = true;
     try {
-      await autoSync(
-        globalState,
-        globalSettingCubit: globalSettingCubit,
-        comicFollowCubit: context.read<ComicFollowCubit>(),
-      );
-      if (globalState.syncSetting.syncNotify) {
-        showSuccessToast(
-          force ? t.navigation.syncSuccess : t.navigation.autoSyncSuccess,
+      final globalSettingCubit = context.read<GlobalSettingCubit>();
+      final globalState = globalSettingCubit.state;
+
+      if (!force && globalState.syncSetting.autoSync == false) {
+        return;
+      }
+
+      if (!isSyncServiceConfigured(globalState)) {
+        return;
+      }
+
+      try {
+        await autoSync(
+          globalState,
+          globalSettingCubit: globalSettingCubit,
+          comicFollowCubit: context.read<ComicFollowCubit>(),
+        );
+        if (globalState.syncSetting.syncNotify) {
+          showSuccessToast(
+            force ? t.navigation.syncSuccess : t.navigation.autoSyncSuccess,
+          );
+        }
+      } catch (e, stackTrace) {
+        logger.e(e.toString(), stackTrace: stackTrace);
+        showErrorToast(
+          t.navigation.syncFailedMessage(error: normalizeSearchErrorMessage(e)),
+          title: force ? t.navigation.syncFailed : t.navigation.autoSyncFailed,
         );
       }
-    } catch (e, stackTrace) {
-      logger.e(e.toString(), stackTrace: stackTrace);
-      showErrorToast(
-        t.navigation.syncFailedMessage(error: normalizeSearchErrorMessage(e)),
-        title: force ? t.navigation.syncFailed : t.navigation.autoSyncFailed,
-      );
+    } finally {
+      _autoSyncRunning = false;
     }
   }
 

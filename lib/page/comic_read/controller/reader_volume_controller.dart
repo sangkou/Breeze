@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/page/comic_read/controller/reader_action_controller.dart';
 import 'package:zephyr/service/reader/reader_volume_service.dart';
+import 'package:zephyr/util/ohos/platform.dart';
 
 class ReaderVolumeController {
   late ReaderActionController actionController;
@@ -18,7 +19,7 @@ class ReaderVolumeController {
 
   void listen() {
     _subscription?.cancel();
-    if (!Platform.isAndroid) return;
+    if (!Platform.isAndroid && !isOhos) return;
     _subscription = _service.volumeEvents.listen(_handleEvent);
   }
 

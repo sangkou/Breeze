@@ -56,11 +56,12 @@ extension FolderShelfEventPatterns on FolderShelfEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( FolderShelfLoadRequested value)?  loadRequested,TResult Function( FolderShelfEnterFolder value)?  enterFolder,TResult Function( FolderShelfGoBack value)?  goBack,TResult Function( FolderShelfGoHome value)?  goHome,TResult Function( FolderShelfToggleSort value)?  toggleSort,TResult Function( FolderShelfCreateFolder value)?  createFolder,TResult Function( FolderShelfDeleteFolder value)?  deleteFolder,TResult Function( FolderShelfRenameFolder value)?  renameFolder,TResult Function( FolderShelfEnterSelectionMode value)?  enterSelectionMode,TResult Function( FolderShelfExitSelectionMode value)?  exitSelectionMode,TResult Function( FolderShelfToggleFolderSelection value)?  toggleFolderSelection,TResult Function( FolderShelfToggleComicSelection value)?  toggleComicSelection,TResult Function( FolderShelfSelectAll value)?  selectAll,TResult Function( FolderShelfMoveSelected value)?  moveSelected,TResult Function( FolderShelfCopySelected value)?  copySelected,TResult Function( FolderShelfDeleteSelected value)?  deleteSelected,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( FolderShelfLoadRequested value)?  loadRequested,TResult Function( FolderShelfLoadMoreRequested value)?  loadMoreRequested,TResult Function( FolderShelfEnterFolder value)?  enterFolder,TResult Function( FolderShelfGoBack value)?  goBack,TResult Function( FolderShelfGoHome value)?  goHome,TResult Function( FolderShelfToggleSort value)?  toggleSort,TResult Function( FolderShelfCreateFolder value)?  createFolder,TResult Function( FolderShelfDeleteFolder value)?  deleteFolder,TResult Function( FolderShelfRenameFolder value)?  renameFolder,TResult Function( FolderShelfEnterSelectionMode value)?  enterSelectionMode,TResult Function( FolderShelfExitSelectionMode value)?  exitSelectionMode,TResult Function( FolderShelfToggleFolderSelection value)?  toggleFolderSelection,TResult Function( FolderShelfToggleComicSelection value)?  toggleComicSelection,TResult Function( FolderShelfSelectAll value)?  selectAll,TResult Function( FolderShelfMoveSelected value)?  moveSelected,TResult Function( FolderShelfCopySelected value)?  copySelected,TResult Function( FolderShelfDeleteSelected value)?  deleteSelected,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested() when loadRequested != null:
-return loadRequested(_that);case FolderShelfEnterFolder() when enterFolder != null:
+return loadRequested(_that);case FolderShelfLoadMoreRequested() when loadMoreRequested != null:
+return loadMoreRequested(_that);case FolderShelfEnterFolder() when enterFolder != null:
 return enterFolder(_that);case FolderShelfGoBack() when goBack != null:
 return goBack(_that);case FolderShelfGoHome() when goHome != null:
 return goHome(_that);case FolderShelfToggleSort() when toggleSort != null:
@@ -93,11 +94,12 @@ return deleteSelected(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( FolderShelfLoadRequested value)  loadRequested,required TResult Function( FolderShelfEnterFolder value)  enterFolder,required TResult Function( FolderShelfGoBack value)  goBack,required TResult Function( FolderShelfGoHome value)  goHome,required TResult Function( FolderShelfToggleSort value)  toggleSort,required TResult Function( FolderShelfCreateFolder value)  createFolder,required TResult Function( FolderShelfDeleteFolder value)  deleteFolder,required TResult Function( FolderShelfRenameFolder value)  renameFolder,required TResult Function( FolderShelfEnterSelectionMode value)  enterSelectionMode,required TResult Function( FolderShelfExitSelectionMode value)  exitSelectionMode,required TResult Function( FolderShelfToggleFolderSelection value)  toggleFolderSelection,required TResult Function( FolderShelfToggleComicSelection value)  toggleComicSelection,required TResult Function( FolderShelfSelectAll value)  selectAll,required TResult Function( FolderShelfMoveSelected value)  moveSelected,required TResult Function( FolderShelfCopySelected value)  copySelected,required TResult Function( FolderShelfDeleteSelected value)  deleteSelected,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( FolderShelfLoadRequested value)  loadRequested,required TResult Function( FolderShelfLoadMoreRequested value)  loadMoreRequested,required TResult Function( FolderShelfEnterFolder value)  enterFolder,required TResult Function( FolderShelfGoBack value)  goBack,required TResult Function( FolderShelfGoHome value)  goHome,required TResult Function( FolderShelfToggleSort value)  toggleSort,required TResult Function( FolderShelfCreateFolder value)  createFolder,required TResult Function( FolderShelfDeleteFolder value)  deleteFolder,required TResult Function( FolderShelfRenameFolder value)  renameFolder,required TResult Function( FolderShelfEnterSelectionMode value)  enterSelectionMode,required TResult Function( FolderShelfExitSelectionMode value)  exitSelectionMode,required TResult Function( FolderShelfToggleFolderSelection value)  toggleFolderSelection,required TResult Function( FolderShelfToggleComicSelection value)  toggleComicSelection,required TResult Function( FolderShelfSelectAll value)  selectAll,required TResult Function( FolderShelfMoveSelected value)  moveSelected,required TResult Function( FolderShelfCopySelected value)  copySelected,required TResult Function( FolderShelfDeleteSelected value)  deleteSelected,}){
 final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested():
-return loadRequested(_that);case FolderShelfEnterFolder():
+return loadRequested(_that);case FolderShelfLoadMoreRequested():
+return loadMoreRequested(_that);case FolderShelfEnterFolder():
 return enterFolder(_that);case FolderShelfGoBack():
 return goBack(_that);case FolderShelfGoHome():
 return goHome(_that);case FolderShelfToggleSort():
@@ -126,11 +128,12 @@ return deleteSelected(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( FolderShelfLoadRequested value)?  loadRequested,TResult? Function( FolderShelfEnterFolder value)?  enterFolder,TResult? Function( FolderShelfGoBack value)?  goBack,TResult? Function( FolderShelfGoHome value)?  goHome,TResult? Function( FolderShelfToggleSort value)?  toggleSort,TResult? Function( FolderShelfCreateFolder value)?  createFolder,TResult? Function( FolderShelfDeleteFolder value)?  deleteFolder,TResult? Function( FolderShelfRenameFolder value)?  renameFolder,TResult? Function( FolderShelfEnterSelectionMode value)?  enterSelectionMode,TResult? Function( FolderShelfExitSelectionMode value)?  exitSelectionMode,TResult? Function( FolderShelfToggleFolderSelection value)?  toggleFolderSelection,TResult? Function( FolderShelfToggleComicSelection value)?  toggleComicSelection,TResult? Function( FolderShelfSelectAll value)?  selectAll,TResult? Function( FolderShelfMoveSelected value)?  moveSelected,TResult? Function( FolderShelfCopySelected value)?  copySelected,TResult? Function( FolderShelfDeleteSelected value)?  deleteSelected,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( FolderShelfLoadRequested value)?  loadRequested,TResult? Function( FolderShelfLoadMoreRequested value)?  loadMoreRequested,TResult? Function( FolderShelfEnterFolder value)?  enterFolder,TResult? Function( FolderShelfGoBack value)?  goBack,TResult? Function( FolderShelfGoHome value)?  goHome,TResult? Function( FolderShelfToggleSort value)?  toggleSort,TResult? Function( FolderShelfCreateFolder value)?  createFolder,TResult? Function( FolderShelfDeleteFolder value)?  deleteFolder,TResult? Function( FolderShelfRenameFolder value)?  renameFolder,TResult? Function( FolderShelfEnterSelectionMode value)?  enterSelectionMode,TResult? Function( FolderShelfExitSelectionMode value)?  exitSelectionMode,TResult? Function( FolderShelfToggleFolderSelection value)?  toggleFolderSelection,TResult? Function( FolderShelfToggleComicSelection value)?  toggleComicSelection,TResult? Function( FolderShelfSelectAll value)?  selectAll,TResult? Function( FolderShelfMoveSelected value)?  moveSelected,TResult? Function( FolderShelfCopySelected value)?  copySelected,TResult? Function( FolderShelfDeleteSelected value)?  deleteSelected,}){
 final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested() when loadRequested != null:
-return loadRequested(_that);case FolderShelfEnterFolder() when enterFolder != null:
+return loadRequested(_that);case FolderShelfLoadMoreRequested() when loadMoreRequested != null:
+return loadMoreRequested(_that);case FolderShelfEnterFolder() when enterFolder != null:
 return enterFolder(_that);case FolderShelfGoBack() when goBack != null:
 return goBack(_that);case FolderShelfGoHome() when goHome != null:
 return goHome(_that);case FolderShelfToggleSort() when toggleSort != null:
@@ -162,10 +165,11 @@ return deleteSelected(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( SearchStatusState? search)?  loadRequested,TResult Function( String path)?  enterFolder,TResult Function()?  goBack,TResult Function()?  goHome,TResult Function()?  toggleSort,TResult Function( String name)?  createFolder,TResult Function( String path)?  deleteFolder,TResult Function( String path,  String newName)?  renameFolder,TResult Function()?  enterSelectionMode,TResult Function()?  exitSelectionMode,TResult Function( String path)?  toggleFolderSelection,TResult Function( String comicUniqueKey)?  toggleComicSelection,TResult Function()?  selectAll,TResult Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)?  moveSelected,TResult Function( Set<String> targetPaths)?  copySelected,TResult Function()?  deleteSelected,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( SearchStatusState? search)?  loadRequested,TResult Function()?  loadMoreRequested,TResult Function( String path)?  enterFolder,TResult Function()?  goBack,TResult Function()?  goHome,TResult Function()?  toggleSort,TResult Function( String name)?  createFolder,TResult Function( String path)?  deleteFolder,TResult Function( String path,  String newName)?  renameFolder,TResult Function()?  enterSelectionMode,TResult Function()?  exitSelectionMode,TResult Function( String path)?  toggleFolderSelection,TResult Function( String comicUniqueKey)?  toggleComicSelection,TResult Function()?  selectAll,TResult Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)?  moveSelected,TResult Function( Set<String> targetPaths)?  copySelected,TResult Function()?  deleteSelected,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested() when loadRequested != null:
-return loadRequested(_that.search);case FolderShelfEnterFolder() when enterFolder != null:
+return loadRequested(_that.search);case FolderShelfLoadMoreRequested() when loadMoreRequested != null:
+return loadMoreRequested();case FolderShelfEnterFolder() when enterFolder != null:
 return enterFolder(_that.path);case FolderShelfGoBack() when goBack != null:
 return goBack();case FolderShelfGoHome() when goHome != null:
 return goHome();case FolderShelfToggleSort() when toggleSort != null:
@@ -198,10 +202,11 @@ return deleteSelected();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( SearchStatusState? search)  loadRequested,required TResult Function( String path)  enterFolder,required TResult Function()  goBack,required TResult Function()  goHome,required TResult Function()  toggleSort,required TResult Function( String name)  createFolder,required TResult Function( String path)  deleteFolder,required TResult Function( String path,  String newName)  renameFolder,required TResult Function()  enterSelectionMode,required TResult Function()  exitSelectionMode,required TResult Function( String path)  toggleFolderSelection,required TResult Function( String comicUniqueKey)  toggleComicSelection,required TResult Function()  selectAll,required TResult Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)  moveSelected,required TResult Function( Set<String> targetPaths)  copySelected,required TResult Function()  deleteSelected,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( SearchStatusState? search)  loadRequested,required TResult Function()  loadMoreRequested,required TResult Function( String path)  enterFolder,required TResult Function()  goBack,required TResult Function()  goHome,required TResult Function()  toggleSort,required TResult Function( String name)  createFolder,required TResult Function( String path)  deleteFolder,required TResult Function( String path,  String newName)  renameFolder,required TResult Function()  enterSelectionMode,required TResult Function()  exitSelectionMode,required TResult Function( String path)  toggleFolderSelection,required TResult Function( String comicUniqueKey)  toggleComicSelection,required TResult Function()  selectAll,required TResult Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)  moveSelected,required TResult Function( Set<String> targetPaths)  copySelected,required TResult Function()  deleteSelected,}) {final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested():
-return loadRequested(_that.search);case FolderShelfEnterFolder():
+return loadRequested(_that.search);case FolderShelfLoadMoreRequested():
+return loadMoreRequested();case FolderShelfEnterFolder():
 return enterFolder(_that.path);case FolderShelfGoBack():
 return goBack();case FolderShelfGoHome():
 return goHome();case FolderShelfToggleSort():
@@ -230,10 +235,11 @@ return deleteSelected();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( SearchStatusState? search)?  loadRequested,TResult? Function( String path)?  enterFolder,TResult? Function()?  goBack,TResult? Function()?  goHome,TResult? Function()?  toggleSort,TResult? Function( String name)?  createFolder,TResult? Function( String path)?  deleteFolder,TResult? Function( String path,  String newName)?  renameFolder,TResult? Function()?  enterSelectionMode,TResult? Function()?  exitSelectionMode,TResult? Function( String path)?  toggleFolderSelection,TResult? Function( String comicUniqueKey)?  toggleComicSelection,TResult? Function()?  selectAll,TResult? Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)?  moveSelected,TResult? Function( Set<String> targetPaths)?  copySelected,TResult? Function()?  deleteSelected,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( SearchStatusState? search)?  loadRequested,TResult? Function()?  loadMoreRequested,TResult? Function( String path)?  enterFolder,TResult? Function()?  goBack,TResult? Function()?  goHome,TResult? Function()?  toggleSort,TResult? Function( String name)?  createFolder,TResult? Function( String path)?  deleteFolder,TResult? Function( String path,  String newName)?  renameFolder,TResult? Function()?  enterSelectionMode,TResult? Function()?  exitSelectionMode,TResult? Function( String path)?  toggleFolderSelection,TResult? Function( String comicUniqueKey)?  toggleComicSelection,TResult? Function()?  selectAll,TResult? Function( Set<String> targetPaths,  Set<String>? sourceFolderPaths)?  moveSelected,TResult? Function( Set<String> targetPaths)?  copySelected,TResult? Function()?  deleteSelected,}) {final _that = this;
 switch (_that) {
 case FolderShelfLoadRequested() when loadRequested != null:
-return loadRequested(_that.search);case FolderShelfEnterFolder() when enterFolder != null:
+return loadRequested(_that.search);case FolderShelfLoadMoreRequested() when loadMoreRequested != null:
+return loadMoreRequested();case FolderShelfEnterFolder() when enterFolder != null:
 return enterFolder(_that.path);case FolderShelfGoBack() when goBack != null:
 return goBack();case FolderShelfGoHome() when goHome != null:
 return goHome();case FolderShelfToggleSort() when toggleSort != null:
@@ -335,6 +341,38 @@ $SearchStatusStateCopyWith<$Res>? get search {
   });
 }
 }
+
+/// @nodoc
+
+
+class FolderShelfLoadMoreRequested implements FolderShelfEvent {
+  const FolderShelfLoadMoreRequested();
+  
+
+
+
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is FolderShelfLoadMoreRequested);
+}
+
+
+@override
+int get hashCode => runtimeType.hashCode;
+
+@override
+String toString() {
+    return 'FolderShelfEvent.loadMoreRequested()';
+}
+
+
+}
+
+
+
 
 /// @nodoc
 

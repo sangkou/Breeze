@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 
 /// 搜索书签无需插件声明：快照只是搜索参数重放，全插件可用。
 
@@ -83,15 +82,15 @@ class SearchBookmarkState {
   }
 }
 
-/// 搜索书签：ObjectBox 直读写，无同步、无墓碑，删了就是删了。
+/// 搜索书签：SQLite 直读写，无同步、无墓碑，删了就是删了。
 class SearchBookmarkCubit extends Cubit<SearchBookmarkState> {
   SearchBookmarkCubit() : super(const SearchBookmarkState());
 
   /// 全量加载所有插件的书签（不再按 source 过滤）。
-  void loadAll() {
+  Future<void> loadAll() async {
     emit(state.copyWith(status: SearchBookmarkStatus.loading));
     try {
-      final items = objectbox.searchBookmarkBox.getAll();
+      final items = await database.bookmarks.getAll();
       if (isClosed) return;
       emit(state.copyWith(status: SearchBookmarkStatus.success, items: items));
     } catch (e) {
@@ -128,11 +127,7 @@ class SearchBookmarkCubit extends Cubit<SearchBookmarkState> {
   }) async {
     final now = DateTime.now();
     final uniqueKey = searchBookmarkUniqueKey(source, keyword, anchorComicId);
-    final query = objectbox.searchBookmarkBox
-        .query(SearchBookmark_.uniqueKey.equals(uniqueKey))
-        .build();
-    final existing = query.findFirst();
-    query.close();
+    final existing = await database.bookmarks.getByKey(uniqueKey);
     final entity = SearchBookmark(
       id: existing?.id ?? 0,
       uniqueKey: uniqueKey,
@@ -147,13 +142,13 @@ class SearchBookmarkCubit extends Cubit<SearchBookmarkState> {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     );
-    objectbox.searchBookmarkBox.put(entity);
-    if (!isClosed) loadAll();
+    await database.bookmarks.put(entity);
+    if (!isClosed) await loadAll();
     return entity;
   }
 
   Future<void> remove(SearchBookmark bookmark) async {
-    objectbox.searchBookmarkBox.remove(bookmark.id);
-    if (!isClosed) loadAll();
+    await database.bookmarks.removeById(bookmark.id);
+    if (!isClosed) await loadAll();
   }
 }

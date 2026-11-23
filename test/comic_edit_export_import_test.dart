@@ -8,8 +8,8 @@ import 'package:zephyr/page/comic_edit/method/comic_edit_service.dart';
 import 'package:zephyr/page/comic_info/method/export_comic.dart';
 import 'package:zephyr/service/download/download_asset_store.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/get_path.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/storage/get_path.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 
 import 'test_helper.dart';
 
@@ -129,7 +129,7 @@ void main() {
 
   setUpAll(() async {
     await initRustLib(silent: true);
-    await TestObjectBoxHelper.setUpTestObjectBox();
+    await TestDatabaseHelper.setUpTestDatabase();
     downloadRoot = await Directory.systemTemp.createTemp(
       'breeze_edit_roundtrip_',
     );
@@ -141,19 +141,19 @@ void main() {
     if (await downloadRoot.exists()) {
       await downloadRoot.delete(recursive: true);
     }
-    await TestObjectBoxHelper.tearDownTestObjectBox();
+    await TestDatabaseHelper.tearDownTestDatabase();
   });
 
   setUp(() async {
-    objectbox.unifiedDownloadBox.removeAll();
-    objectbox.downloadTaskBox.removeAll();
+    await database.downloads.removeAll();
+    await database.downloadTasks.removeAll();
     final record = createTestDownload('test:c1')
       ..comicId = 'c1'
       ..title = 'Original'
       ..cover = jsonEncode(_cover())
       ..chapters = jsonEncode(_chapters())
       ..detailJson = jsonEncode(_detail());
-    objectbox.unifiedDownloadBox.put(record);
+    await database.downloads.put(record);
 
     await _writeAsset(
       storageChapterId: '',
@@ -185,11 +185,11 @@ void main() {
       );
       expect(await Directory(exportedDir).exists(), isTrue);
 
-      objectbox.unifiedDownloadBox.removeAll();
+      await database.downloads.removeAll();
       final result = await importComicFromDirectory(exportedDir);
       expect(result.comicId, 'c1');
 
-      final record = objectbox.unifiedDownloadBox.getAll().single;
+      final record = (await database.downloads.getAll()).single;
       expect(record.title, 'Original');
 
       final chapters = jsonDecode(record.chapters) as List;
@@ -242,11 +242,11 @@ void main() {
       if (await downloadRoot.exists()) {
         await downloadRoot.delete(recursive: true);
       }
-      objectbox.unifiedDownloadBox.removeAll();
+      await database.downloads.removeAll();
 
       await importComicFromDirectory(exportedDir);
 
-      final record = objectbox.unifiedDownloadBox.getAll().single;
+      final record = (await database.downloads.getAll()).single;
       final cover = jsonDecode(record.cover) as Map;
       final coverStore = DownloadAssetStore(
         from: 'test',

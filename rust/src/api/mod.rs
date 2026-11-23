@@ -1,4 +1,6 @@
+pub mod comic_archive;
 pub mod data_backup;
+pub mod database;
 pub mod http;
 pub mod image;
 pub mod localization;
@@ -6,6 +8,7 @@ pub mod logger;
 pub mod memory;
 pub mod qjs;
 pub mod simple;
+pub mod sync_device;
 pub mod system;
 pub mod user_utils;
 pub mod webdav;

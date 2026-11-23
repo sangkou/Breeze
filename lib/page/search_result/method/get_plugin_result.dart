@@ -25,7 +25,10 @@ Future<BlocState> getPluginSearchResult(
     },
     extern: extern,
   );
-  final parsed = UnifiedPluginSearchResponse.fromMap(response);
+  final parsed = UnifiedPluginSearchResponse.fromMap(
+    response.data,
+    source: response.source,
+  );
 
   final list = parsed.items
       .map((item) => _toUnifiedComic(item, event.page, parsed.source))

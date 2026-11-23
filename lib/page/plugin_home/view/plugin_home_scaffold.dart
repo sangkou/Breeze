@@ -250,7 +250,7 @@ class _PluginHomeScaffoldState extends State<PluginHomeScaffold>
           icon: Icon(_iconForAction(action)),
           onPressed: () => DiscoverRouter.route(
             context,
-            action: DiscoverRouter.attachSource(action, state.pluginId),
+            action: action,
             currentFrom: state.pluginId,
           ),
         ),
@@ -403,7 +403,7 @@ class _PluginHomeScaffoldState extends State<PluginHomeScaffold>
   }
 
   /// 登录错误页的登录按钮：进登录页，回来后重试拉 bundle。
-  /// 登录成功会触发全局 initOk/插件状态变化，retry 即能拿到数据。
+  /// 登录成功直接重试 bundle；不需要等后台 init 跑完。
   Future<void> _openLogin(BuildContext context, String pluginId) async {
     await context.pushRoute(LoginRoute(from: pluginId));
     if (!mounted) {

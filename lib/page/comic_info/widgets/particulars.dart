@@ -8,8 +8,6 @@ import 'package:zephyr/cubit/string_select.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/plugin/qjs_download_runtime.dart';
-import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/comic_info/comic_info.dart';
 import 'package:zephyr/page/comic_info/json/normal/normal_comic_all_info.dart'
     show ComicInfo, ComicInfoActionItem;
@@ -18,7 +16,7 @@ import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/type/enum.dart';
 import 'package:zephyr/type/pipe.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 import 'package:zephyr/widgets/picture_bloc/models/picture_info.dart';
 import 'package:zephyr/widgets/toast.dart';
@@ -206,16 +204,11 @@ class _InfoColumnState extends State<_InfoColumn> {
 
     // 旧数据库记录可能保存了当时实际使用的绝对 storageRoot。
     for (final source in sourceCandidates) {
-      final query = objectbox.unifiedDownloadBox
-          .query(UnifiedComicDownload_.uniqueKey.equals('$source:$comicId'))
-          .build();
-      UnifiedComicDownload? download;
-      try {
-        download = query.findFirst();
-      } finally {
-        query.close();
-      }
-      final storedRoot = download?.storageRoot.trim() ?? '';
+      // 只取 storageRoot：不把 chapters/detailJson 这些大列拉进 UI isolate。
+      final rows = await database.downloads.getShelfByKeys([
+        '$source:$comicId',
+      ]);
+      final storedRoot = rows.isEmpty ? '' : rows.first.storageRoot.trim();
       if (storedRoot.isNotEmpty && p.isAbsolute(storedRoot)) {
         addRoot(storedRoot);
       }

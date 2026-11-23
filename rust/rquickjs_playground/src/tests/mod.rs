@@ -1,3 +1,4 @@
+pub mod bytecode;
 pub mod compat;
 pub mod fetch;
 pub mod fetch_timeout;

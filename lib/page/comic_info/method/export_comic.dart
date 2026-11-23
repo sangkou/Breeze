@@ -6,13 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:zephyr/config/global/global.dart';
 import 'package:zephyr/network/http/picture/picture.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/download/models/download_chapter.dart';
 import 'package:zephyr/page/download/models/unified_comic_download.dart';
 import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/src/rust/compressed/compressed.dart';
 import 'package:zephyr/type/enum.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/widgets/toast.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
@@ -147,7 +146,7 @@ Future<String> _exportComicAsFolder(
   required String from,
   String? exportPath,
 }) async {
-  final download = _getDownload(comicId, from: from);
+  final download = await _getDownload(comicId, from: from);
   final detail = _exportDetail(download);
   final title = download.title;
   final root = exportPath ?? await createDownloadDir();
@@ -213,7 +212,7 @@ Future<String> _exportComicAsZip(
   required String from,
   String? exportPath,
 }) async {
-  final download = _getDownload(comicId, from: from);
+  final download = await _getDownload(comicId, from: from);
   final detail = _exportDetail(download);
   final title = download.title;
   final maxPath = _getMaxPathLength();
@@ -282,19 +281,16 @@ Future<String> _exportComicAsZip(
   return finalZipPath;
 }
 
-UnifiedComicDownload _getDownload(String comicId, {required String from}) {
-  final exact = objectbox.unifiedDownloadBox
-      .query(UnifiedComicDownload_.uniqueKey.equals('$from:$comicId'))
-      .build()
-      .findFirst();
+Future<UnifiedComicDownload> _getDownload(
+  String comicId, {
+  required String from,
+}) async {
+  final exact = await database.downloads.getByKey('$from:$comicId');
   if (exact != null) {
     return exact;
   }
 
-  final fallback = objectbox.unifiedDownloadBox
-      .query(UnifiedComicDownload_.comicId.equals(comicId))
-      .build()
-      .findFirst();
+  final fallback = await database.downloads.getFirstByComicId(comicId);
   if (fallback != null) {
     return fallback;
   }

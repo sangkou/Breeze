@@ -4,7 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/page/setting/common/setting_ui.dart';
-import 'package:zephyr/util/doh_setting.dart';
+import 'package:zephyr/util/network/doh_setting.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 /// DoH（DNS over HTTPS）开关与端点管理。

@@ -77,8 +77,10 @@ class ComicListScene {
   final ComicListBodyConfig body;
   final ComicListRequestConfig? filter;
 
-  factory ComicListScene.fromMap(Map<String, dynamic> map) {
-    final source = map['source']?.toString().trim() ?? '';
+  factory ComicListScene.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final bodyMap = asJsonMap(map['body']);
     final listMap = asJsonMap(map['list']);
 

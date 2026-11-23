@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as file_path;
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/http/plugin/qjs_download_runtime.dart';
+import 'package:zephyr/network/http/plugin/qjs_image_runtime.dart';
 import 'package:zephyr/page/setting/real_sr/service/real_sr_super_resolution.dart';
 import 'package:zephyr/service/download/download_asset_store.dart';
 import 'package:zephyr/service/download/download_cancel_signal.dart';
@@ -13,7 +14,7 @@ import 'package:zephyr/src/rust/api/simple.dart';
 import 'package:zephyr/src/rust/decode/decode.dart';
 import 'package:zephyr/type/enum.dart';
 import 'package:zephyr/type/pipe.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 
 export 'package:zephyr/service/download/download_asset_store.dart'
     show normalizeStoredAssetPath;
@@ -71,13 +72,15 @@ Future<bool> _shouldApplyJmDeobfuscation({
 /// 调用插件 `isJm` 函数；任何错误都吞掉并视为 false。
 Future<bool> _queryPluginIsJm(String pluginId, String? runtimeName) async {
   try {
-    final raw = await executeQjsCall(
+    final result = await executeQjsCall(
       pluginId: pluginId,
       runtimeName: runtimeName,
       fnPath: _kJmCheckFnPath,
       argsJson: '{}',
     );
-    return _parseIsJmResult(jsonDecode(raw));
+    return _parseIsJmResult(
+      jsonDecode(utf8.decode(result.bytes, allowMalformed: true)),
+    );
   } catch (_) {
     return false;
   }

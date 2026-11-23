@@ -22,7 +22,7 @@ import 'package:zephyr/page/comic_read/model/normal_comic_ep_info.dart';
 import 'package:zephyr/page/comic_read/type/chapter_extern.dart';
 import 'package:zephyr/platform/eink/eink_refresh.dart';
 import 'package:zephyr/util/context/context_extensions.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/device/responsive.dart';
 import 'package:zephyr/type/enum.dart';
 
 // 自动阅读相关：计时器、暂停/继续、悬浮按钮。
@@ -252,6 +252,7 @@ class _ComicReadPageState extends State<_ComicReadPage>
     _imagePrefetchController.dispose();
     _volumeController.dispose();
     _pageController.dispose();
+    scrollController.dispose();
     _transformationController.dispose();
     unawaited(_orientationController.restorePortrait());
     try {

@@ -56,6 +56,22 @@ pub(crate) fn setup_log_to_console(enabled: bool) {
             return;
         }
 
+        #[cfg(target_env = "ohos")]
+        {
+            use crate::api::logger::HilogMakeWriter;
+
+            init_subscriber(
+                tracing_subscriber::registry().with(filter).with(
+                    fmt::layer()
+                        .with_writer(HilogMakeWriter {})
+                        .event_format(BoxedFormatter { with_ansi: false }),
+                ),
+                "OHOS",
+            );
+            tracing::info!("Tracing initialized (OHOS)");
+            return;
+        }
+
         #[cfg(target_family = "wasm")]
         {
             init_subscriber(
@@ -72,7 +88,8 @@ pub(crate) fn setup_log_to_console(enabled: bool) {
             not(target_family = "wasm"),
             not(target_os = "android"),
             not(target_os = "ios"),
-            not(target_os = "macos")
+            not(target_os = "macos"),
+            not(target_env = "ohos")
         ))]
         {
             use crate::api::logger::ChunkedStdoutMakeWriter;

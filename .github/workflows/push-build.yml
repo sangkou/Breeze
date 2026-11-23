@@ -4,13 +4,24 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'lib/**'
+      - 'rust/**'
   pull_request:
     branches:
       - main
+    paths:
+      - 'lib/**'
+      - 'rust/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# PR 上重复推送只保留最新一次构建；main 分支的推送互不取消，保证每个提交都有完整产物
+concurrency:
+  group: push-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
@@ -628,3 +639,13 @@ jobs:
         with:
           name: ios-ipa
           path: Breeze-iOS.ipa
+
+  # ══════════════════════════════════════════
+  # 6. HarmonyOS 构建（复用 ohos-build.yml，产物为未签名 HAP）
+  # ══════════════════════════════════════════
+  build-ohos:
+    uses: ./.github/workflows/ohos-build.yml
+    with:
+      arch: arm64
+      build_mode: release
+      entry: lib/main.dart

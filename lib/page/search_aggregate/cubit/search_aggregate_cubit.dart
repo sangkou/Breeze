@@ -1,13 +1,14 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:worker_manager/worker_manager.dart';
+import 'package:zephyr/config/global/global_setting.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/widgets/comic_entry/models/models.dart';
 import 'package:zephyr/page/search_result/bloc/search_bloc.dart';
 import 'package:zephyr/page/search_result/method/get_plugin_result.dart';
 import 'package:zephyr/page/search_result/models/bloc_state.dart';
 import 'package:zephyr/type/pipe.dart';
-import 'package:zephyr/util/error_filter.dart';
-import 'package:zephyr/util/rust_loader.dart';
+import 'package:zephyr/util/async/worker_pool.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/rust/rust_loader.dart';
 import 'package:zephyr/util/text/chinese_convert.dart';
 
 enum AggregateSearchStatus { initial, loading, success, failure }
@@ -184,10 +185,7 @@ class AggregateSearchCubit extends Cubit<AggregateSearchState> {
     );
     final result = await getPluginSearchResult(event, BlocState());
     final comics = result.comics.map((e) => e.comic).toList();
-    final maskedKeywords = objectbox.userSettingBox
-        .get(1)!
-        .globalSetting
-        .maskedKeywords
+    final maskedKeywords = globalSetting.maskedKeywords
         .where((keyword) => keyword.trim().isNotEmpty)
         .map((keyword) => keyword.trim().toLowerCase().let(t2s))
         .where((keyword) => keyword.isNotEmpty)
@@ -203,9 +201,7 @@ class AggregateSearchCubit extends Cubit<AggregateSearchState> {
     };
 
     try {
-      final filtered = await workerManager.execute<List<Map<String, dynamic>>>(
-        () => _filterAggregateComics(payload),
-      );
+      final filtered = await runInIsolate(_filterAggregateComics, payload);
       return filtered
           .map((json) => UnifiedComicListItem.fromJson(json))
           .toList();

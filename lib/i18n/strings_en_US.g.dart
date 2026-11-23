@@ -243,6 +243,10 @@ class _Translations$settings$en_US extends Translations$settings$zh_CN {
 	@override String get showPluginCloudFavoriteSubtitle => 'Hide the cloud favorites tab in the bottom navigation when off';
 	@override String get showSearchBookmark => 'Show search bookmarks';
 	@override String get showSearchBookmarkSubtitle => 'Hide the search bookmarks entry in More and the add button in search results when off';
+	@override String get showScrollbar => 'Show scrollbars';
+	@override String get showScrollbarSubtitle => 'On by default on desktop, off by default on mobile';
+	@override String get alwaysShowScrollbar => 'Always show scrollbars';
+	@override String get alwaysShowScrollbarSubtitle => 'Keep scrollbar thumbs visible after scrolling stops';
 	@override String get contentAndNetwork => 'Content & Network';
 	@override String get content => 'Content';
 	@override String get network => 'Network';
@@ -292,6 +296,14 @@ class _Translations$settings$en_US extends Translations$settings$zh_CN {
 	@override String get syncServiceS3 => 'S3';
 	@override String get autoSync => 'Auto sync';
 	@override String get autoSyncSubtitle => 'Sync configuration periodically in background';
+	@override String get syncInterval => 'Sync interval';
+	@override String get syncIntervalSubtitle => 'How often auto sync runs; 5 minutes by default';
+	@override String get syncIntervalValue => 'Interval value';
+	@override String get syncIntervalUnitLabel => 'Unit';
+	@override String get syncIntervalUnitSecond => 'Seconds';
+	@override String get syncIntervalUnitMinute => 'Minutes';
+	@override String get syncIntervalUnitHour => 'Hours';
+	@override String get syncIntervalInvalid => 'Enter a positive integer';
 	@override String get syncNotify => 'Sync notifications';
 	@override String get syncNotifySubtitle => 'Notify when sync starts and completes';
 	@override String get syncSettings => 'Sync settings';
@@ -346,6 +358,17 @@ class _Translations$settings$en_US extends Translations$settings$zh_CN {
 	@override String get detailLayoutSubtitle => 'Show comic lists as horizontal detail rows with author and category info';
 	@override String get reverseChapters => 'Reverse chapters';
 	@override String get reverseChaptersSubtitle => 'Show chapters in reverse order by default on the detail page';
+	@override String get comicDetail => 'Comic detail page';
+	@override String get comicDetailSubtitle => 'Customize action buttons and display style of the detail page';
+	@override String get comicDetailActions => 'Action buttons';
+	@override String get comicDetailShowLike => 'Like';
+	@override String get comicDetailShowLikeSubtitle => 'Show the like button in the action bar';
+	@override String get comicDetailShowComment => 'Comments';
+	@override String get comicDetailShowCommentSubtitle => 'Show the comments button in the action bar';
+	@override String get comicDetailShowLocalCollect => 'Local favorite';
+	@override String get comicDetailShowLocalCollectSubtitle => 'Show the local favorite button in the action bar';
+	@override String get comicDetailShowCloudCollect => 'Cloud favorite';
+	@override String get comicDetailShowCloudCollectSubtitle => 'Show the cloud favorite button in the action bar';
 	@override String get storage => 'Storage';
 	@override String get cache => 'Cache';
 	@override String get clearCache => 'Clear cache';
@@ -475,6 +498,14 @@ class _Translations$bookshelf$en_US extends Translations$bookshelf$zh_CN {
 	@override String get newFolder => 'New folder';
 	@override String get manage => 'Manage';
 	@override String get importComic => 'Import comic';
+	@override String get importExternalComic => 'Import external comic';
+	@override String get importExternalStarted => 'Importing external comic';
+	@override String get importExternalFolder => 'Choose folder';
+	@override String get importExternalFolderHint => 'Scan images and archives in a folder';
+	@override String get importExternalArchive => 'Choose archive';
+	@override String get importExternalArchiveHint => 'Supports CBZ / CBR / CB7 / CBT';
+	@override String importExternalCompleted({required Object title, required Object chapters, required Object images}) => 'Imported: ${title} (${chapters} chapters / ${images} pages)';
+	@override String get importUncategorized => 'Uncategorized';
 	@override String get folderHint => 'Bookshelf hints';
 	@override String get removeFromFolder => 'Remove from folder';
 	@override String get deleteFavorite => 'Remove favorite';
@@ -606,6 +637,14 @@ class _Translations$comicEdit$en_US extends Translations$comicEdit$zh_CN {
 	@override String get coverUpdated => 'Cover updated';
 	@override String get chapterAdded => 'Chapter added';
 	@override String get chapterRenamed => 'Chapter renamed';
+	@override String get importChapters => 'Import chapters';
+	@override String get importImages => 'Import pages';
+	@override String get chaptersImported => 'Chapters imported';
+	@override String imagesImported({required Object count}) => 'Imported ${count} pages';
+	@override String get editVolume => 'Edit volume';
+	@override String get volumeHint => 'Enter a volume name; leave empty for no grouping';
+	@override String volumeLabel({required Object name}) => 'Volume: ${name}';
+	@override String get volumeUpdated => 'Volume updated';
 	@override String get imageMissing => 'Image file missing';
 	@override String get busy => 'Working...';
 	@override String get notFound => 'Download record not found';
@@ -833,6 +872,9 @@ class _Translations$reader$en_US extends Translations$reader$zh_CN {
 	@override String get volumeKeyPageTurn => 'Volume key page turn';
 	@override String get enableVolumeKeyPageTurn => 'Enable volume key page turn';
 	@override String get volumeKeyPageTurnSubtitle => 'Use volume keys to turn pages/scroll';
+	@override String get experimentalFeatures => 'Experimental features';
+	@override String get zoomedContinuousScroll => 'Continuous scrolling while zoomed';
+	@override String get zoomedContinuousScrollSubtitle => 'Webtoon mode only. After zooming, drag vertically with one finger to keep scrolling; turn off if gestures misbehave';
 	@override String get screenHeightPercent => '% screen height';
 	@override String get milliseconds => 'ms';
 	@override String get percent => '%';
@@ -1846,6 +1888,10 @@ extension on TranslationsEnUs {
 			'settings.showPluginCloudFavoriteSubtitle' => 'Hide the cloud favorites tab in the bottom navigation when off',
 			'settings.showSearchBookmark' => 'Show search bookmarks',
 			'settings.showSearchBookmarkSubtitle' => 'Hide the search bookmarks entry in More and the add button in search results when off',
+			'settings.showScrollbar' => 'Show scrollbars',
+			'settings.showScrollbarSubtitle' => 'On by default on desktop, off by default on mobile',
+			'settings.alwaysShowScrollbar' => 'Always show scrollbars',
+			'settings.alwaysShowScrollbarSubtitle' => 'Keep scrollbar thumbs visible after scrolling stops',
 			'settings.contentAndNetwork' => 'Content & Network',
 			'settings.content' => 'Content',
 			'settings.network' => 'Network',
@@ -1895,6 +1941,14 @@ extension on TranslationsEnUs {
 			'settings.syncServiceS3' => 'S3',
 			'settings.autoSync' => 'Auto sync',
 			'settings.autoSyncSubtitle' => 'Sync configuration periodically in background',
+			'settings.syncInterval' => 'Sync interval',
+			'settings.syncIntervalSubtitle' => 'How often auto sync runs; 5 minutes by default',
+			'settings.syncIntervalValue' => 'Interval value',
+			'settings.syncIntervalUnitLabel' => 'Unit',
+			'settings.syncIntervalUnitSecond' => 'Seconds',
+			'settings.syncIntervalUnitMinute' => 'Minutes',
+			'settings.syncIntervalUnitHour' => 'Hours',
+			'settings.syncIntervalInvalid' => 'Enter a positive integer',
 			'settings.syncNotify' => 'Sync notifications',
 			'settings.syncNotifySubtitle' => 'Notify when sync starts and completes',
 			'settings.syncSettings' => 'Sync settings',
@@ -1949,6 +2003,17 @@ extension on TranslationsEnUs {
 			'settings.detailLayoutSubtitle' => 'Show comic lists as horizontal detail rows with author and category info',
 			'settings.reverseChapters' => 'Reverse chapters',
 			'settings.reverseChaptersSubtitle' => 'Show chapters in reverse order by default on the detail page',
+			'settings.comicDetail' => 'Comic detail page',
+			'settings.comicDetailSubtitle' => 'Customize action buttons and display style of the detail page',
+			'settings.comicDetailActions' => 'Action buttons',
+			'settings.comicDetailShowLike' => 'Like',
+			'settings.comicDetailShowLikeSubtitle' => 'Show the like button in the action bar',
+			'settings.comicDetailShowComment' => 'Comments',
+			'settings.comicDetailShowCommentSubtitle' => 'Show the comments button in the action bar',
+			'settings.comicDetailShowLocalCollect' => 'Local favorite',
+			'settings.comicDetailShowLocalCollectSubtitle' => 'Show the local favorite button in the action bar',
+			'settings.comicDetailShowCloudCollect' => 'Cloud favorite',
+			'settings.comicDetailShowCloudCollectSubtitle' => 'Show the cloud favorite button in the action bar',
 			'settings.storage' => 'Storage',
 			'settings.cache' => 'Cache',
 			'settings.clearCache' => 'Clear cache',
@@ -2069,6 +2134,14 @@ extension on TranslationsEnUs {
 			'bookshelf.newFolder' => 'New folder',
 			'bookshelf.manage' => 'Manage',
 			'bookshelf.importComic' => 'Import comic',
+			'bookshelf.importExternalComic' => 'Import external comic',
+			'bookshelf.importExternalStarted' => 'Importing external comic',
+			'bookshelf.importExternalFolder' => 'Choose folder',
+			'bookshelf.importExternalFolderHint' => 'Scan images and archives in a folder',
+			'bookshelf.importExternalArchive' => 'Choose archive',
+			'bookshelf.importExternalArchiveHint' => 'Supports CBZ / CBR / CB7 / CBT',
+			'bookshelf.importExternalCompleted' => ({required Object title, required Object chapters, required Object images}) => 'Imported: ${title} (${chapters} chapters / ${images} pages)',
+			'bookshelf.importUncategorized' => 'Uncategorized',
 			'bookshelf.folderHint' => 'Bookshelf hints',
 			'bookshelf.removeFromFolder' => 'Remove from folder',
 			'bookshelf.deleteFavorite' => 'Remove favorite',
@@ -2191,6 +2264,14 @@ extension on TranslationsEnUs {
 			'comicEdit.coverUpdated' => 'Cover updated',
 			'comicEdit.chapterAdded' => 'Chapter added',
 			'comicEdit.chapterRenamed' => 'Chapter renamed',
+			'comicEdit.importChapters' => 'Import chapters',
+			'comicEdit.importImages' => 'Import pages',
+			'comicEdit.chaptersImported' => 'Chapters imported',
+			'comicEdit.imagesImported' => ({required Object count}) => 'Imported ${count} pages',
+			'comicEdit.editVolume' => 'Edit volume',
+			'comicEdit.volumeHint' => 'Enter a volume name; leave empty for no grouping',
+			'comicEdit.volumeLabel' => ({required Object name}) => 'Volume: ${name}',
+			'comicEdit.volumeUpdated' => 'Volume updated',
 			'comicEdit.imageMissing' => 'Image file missing',
 			'comicEdit.busy' => 'Working...',
 			'comicEdit.notFound' => 'Download record not found',
@@ -2205,6 +2286,8 @@ extension on TranslationsEnUs {
 			'comicInfo.removingCloudCollection' => 'Removing cloud collection...',
 			'comicInfo.cloudCollectSuccess' => 'Added to cloud collection',
 			'comicInfo.cloudUncollectSuccess' => 'Removed from cloud collection',
+			_ => null,
+		} ?? switch (path) {
 			'comicInfo.cloudCollectIncomplete' => 'Cloud collection operation incomplete',
 			'comicInfo.discontinued' => 'This comic is discontinued',
 			'comicInfo.likes' => ({required Object count}) => 'Likes ${count}',
@@ -2244,8 +2327,6 @@ extension on TranslationsEnUs {
 			'comicInfo.tags' => 'Tags',
 			'comicInfo.works' => 'Works',
 			'comicInfo.views' => ({required Object count}) => 'Views: ${count}',
-			_ => null,
-		} ?? switch (path) {
 			'comicInfo.updateTime' => ({required Object time}) => 'Updated: ${time}',
 			'comicInfo.startRead' => 'Start reading',
 			'comicInfo.continueRead' => 'Continue reading',
@@ -2402,6 +2483,9 @@ extension on TranslationsEnUs {
 			'reader.volumeKeyPageTurn' => 'Volume key page turn',
 			'reader.enableVolumeKeyPageTurn' => 'Enable volume key page turn',
 			'reader.volumeKeyPageTurnSubtitle' => 'Use volume keys to turn pages/scroll',
+			'reader.experimentalFeatures' => 'Experimental features',
+			'reader.zoomedContinuousScroll' => 'Continuous scrolling while zoomed',
+			'reader.zoomedContinuousScrollSubtitle' => 'Webtoon mode only. After zooming, drag vertically with one finger to keep scrolling; turn off if gestures misbehave',
 			'reader.screenHeightPercent' => '% screen height',
 			'reader.milliseconds' => 'ms',
 			'reader.percent' => '%',
@@ -2716,6 +2800,8 @@ extension on TranslationsEnUs {
 			'about.networkError' => 'Network error',
 			'about.projectAddress' => 'Project',
 			'about.projectAddressDesc' => 'Like this project? Give it a star on GitHub!',
+			_ => null,
+		} ?? switch (path) {
 			'about.projectLink' => 'Go to GitHub repo (breeze-project-org/Breeze) ⭐',
 			'about.contact' => 'Contact',
 			'about.contactDesc' => 'Have ideas or questions? Feel free to reach out~',
@@ -2758,8 +2844,6 @@ extension on TranslationsEnUs {
 			'oldHome.latest' => 'Latest',
 			'oldHome.cloudFavorite' => 'Cloud Favorites',
 			'oldHome.list' => 'List',
-			_ => null,
-		} ?? switch (path) {
 			'oldHome.function' => 'Function',
 			'oldHome.close' => 'Close',
 			'oldHome.loadFailedRetry' => 'Load failed, please retry.',

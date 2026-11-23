@@ -152,7 +152,7 @@ class _DownloadingTaskTile extends StatelessWidget {
         ? ''
         : downloadTaskPayloadProgressMessage(payload);
     // 任务状态和 checkpoint 进度是分开写入的。下载中只显示结构化进度，
-    // 避免两次 ObjectBox 更新之间蓝色状态文字短暂出现造成闪烁。
+    // 避免两次数据库更新之间蓝色状态文字短暂出现造成闪烁。
     final statusMessage = progressMessage.isEmpty ? task.status : '';
 
     return Card(

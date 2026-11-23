@@ -6,6 +6,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/network/utils/github_proxy.dart';
+import 'package:zephyr/network/http/plugin/qjs_call_exception.dart';
 import 'package:zephyr/plugin/plugin_registry_service.dart';
 import 'package:zephyr/src/rust/api/qjs.dart';
 import 'package:zephyr/src/rust/api/simple.dart';
@@ -302,16 +303,21 @@ Map<String, dynamic>? pickPreferredPluginAsset(List<dynamic> rawAssets) {
 
 Future<Map<String, dynamic>> callGetInfoByGlobalQjs(String bundleJs) async {
   await PluginRegistryService.I.initializeGlobalRuntime();
-  final bytes = await qjsTaskCall(
-    runtimeName: 'global',
-    taskGroupKey: '',
-    isOnce: true,
-    bundleJs: bundleJs,
-    fnPath: 'getInfo',
-    argsJson: '{}',
-  );
-  final raw = utf8.decode(bytes, allowMalformed: true);
-  return requireJsonMap(jsonDecode(raw), message: 'getInfo 返回格式错误');
+  try {
+    final result = await qjsTaskCall(
+      runtimeName: 'global',
+      source: 'global',
+      taskGroupKey: '',
+      isOnce: true,
+      bundleJs: bundleJs,
+      fnPath: 'getInfo',
+      argsJson: '{}',
+    );
+    final raw = utf8.decode(result.bytes, allowMalformed: true);
+    return requireJsonMap(jsonDecode(raw), message: 'getInfo 返回格式错误');
+  } on QjsCallFailure catch (e) {
+    throw QjsCallException(source: e.source, message: e.message, cause: e);
+  }
 }
 
 String readUuidFromInfo(Map<String, dynamic> info) {
@@ -451,6 +457,7 @@ bool _looksLikeRateLimitText(String lower) {
 
 String _rawPluginErrorText(Object error) {
   final text = switch (error) {
+    QjsCallFailure(message: final message) => message,
     AnyhowException(message: final message) => message,
     StateError(message: final message) => message,
     _ => error.toString(),

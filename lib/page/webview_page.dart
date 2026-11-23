@@ -6,11 +6,12 @@ import 'package:desktop_webview_linux/desktop_webview_linux.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/main.dart';
 import 'package:zephyr/util/event/event.dart';
+import 'package:zephyr/util/system/external_link.dart';
 import 'package:zephyr/util/event/webview_observe_bus.dart';
+import 'package:zephyr/util/ohos/platform.dart';
 
 @RoutePage()
 class WebViewPage extends StatefulWidget {
@@ -112,7 +113,7 @@ class _WebViewPageState extends State<WebViewPage> {
   }
 
   Future<void> _openExternal(Uri uri) async {
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    if (!await openExternalUrl(uri)) {
       if (!mounted) {
         return;
       }
@@ -502,8 +503,45 @@ class _WebViewPageState extends State<WebViewPage> {
     );
   }
 
+  Widget _buildUnsupportedView(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(_title)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.public_off, size: 56),
+              const SizedBox(height: 16),
+              Text(
+                '当前平台暂不支持内置网页视图\n'
+                'WebView is not available on this platform',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              if (_url.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                SelectableText(_url, textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => _openExternal(Uri.parse(_url)),
+                  icon: const Icon(Icons.open_in_browser),
+                  label: Text(t.webview.openInExternalBrowser),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (isOhos) {
+      return _buildUnsupportedView(context);
+    }
     final uri = _uri;
 
     return Scaffold(

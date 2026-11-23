@@ -7,7 +7,7 @@ import 'package:zephyr/page/comic_info/bloc/comic_preview_state.dart';
 import 'package:zephyr/page/comic_info/method/get_plugin_detail.dart';
 import 'package:zephyr/page/comic_info/models/comic_preview.dart';
 import 'package:zephyr/page/comic_info/models/unified_plugin_preview.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
 
 export 'package:zephyr/page/comic_info/bloc/comic_preview_event.dart';
 export 'package:zephyr/page/comic_info/bloc/comic_preview_state.dart';

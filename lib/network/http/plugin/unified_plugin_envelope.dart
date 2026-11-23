@@ -13,9 +13,12 @@ class UnifiedPluginEnvelope {
   final Map<String, dynamic> data;
   final Map<String, dynamic> extern;
 
-  factory UnifiedPluginEnvelope.fromMap(Map<String, dynamic> map) {
+  factory UnifiedPluginEnvelope.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     return UnifiedPluginEnvelope(
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       scheme: asJsonMap(map['scheme']),
       data: asJsonMap(map['data']),
       extern: asJsonMap(map['extern']),

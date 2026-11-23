@@ -2,7 +2,6 @@ class PluginRuntimeState {
   const PluginRuntimeState({
     required this.uuid,
     required this.version,
-    required this.originScript,
     required this.isEnabled,
     required this.isDeleted,
     required this.debug,
@@ -17,7 +16,6 @@ class PluginRuntimeState {
 
   final String uuid;
   final String version;
-  final String originScript;
   final bool isEnabled;
   final bool isDeleted;
   final bool debug;
@@ -33,7 +31,6 @@ class PluginRuntimeState {
 
   PluginRuntimeState copyWith({
     String? version,
-    String? originScript,
     bool? isEnabled,
     bool? isDeleted,
     bool? debug,
@@ -48,7 +45,6 @@ class PluginRuntimeState {
     return PluginRuntimeState(
       uuid: uuid,
       version: version ?? this.version,
-      originScript: originScript ?? this.originScript,
       isEnabled: isEnabled ?? this.isEnabled,
       isDeleted: isDeleted ?? this.isDeleted,
       debug: debug ?? this.debug,

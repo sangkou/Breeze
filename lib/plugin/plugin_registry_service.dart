@@ -4,14 +4,16 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:zephyr/main.dart';
+import 'package:zephyr/network/http/plugin/qjs_call_exception.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/object_box.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
+import 'package:zephyr/plugin/local_comic_plugin.dart';
 import 'package:zephyr/plugin/models/plugin_runtime_state.dart';
+import 'package:zephyr/plugin/plugin_bytecode_cache.dart';
+import 'package:zephyr/plugin/plugin_runtime_manager.dart';
 import 'package:zephyr/src/rust/api/qjs.dart';
 import 'package:zephyr/src/rust/qjs.dart';
-import 'package:zephyr/util/get_path.dart';
+import 'package:zephyr/util/storage/get_path.dart';
 import 'package:zephyr/util/json/json_value.dart';
 
 export 'package:zephyr/plugin/models/plugin_runtime_state.dart';
@@ -20,6 +22,13 @@ class PluginRegistryService {
   PluginRegistryService._();
 
   static final PluginRegistryService I = PluginRegistryService._();
+
+  static String _qjsCallErrorMessage(Object error) {
+    if (error is QjsCallFailure) {
+      return error.message;
+    }
+    return error.toString();
+  }
 
   final Map<String, PluginRuntimeState> _states = {};
   final _streamController =
@@ -31,7 +40,7 @@ class PluginRegistryService {
 
   final Set<String> _pluginInitDone = <String>{};
 
-  /// init 已成功跑完的插件（内存态，重启后 warmup 重跑恢复）。
+  /// init 已成功跑完的插件（内存态，重启后重新跑 init 恢复）。
   ///
   /// 与 [updateLoadResult] 的 lastLoadSuccess 独立：后者 getInfo 成功也会写，
   /// 不能表达“init 跑完”。安装/启用流程不等待本集合，只后台标记。
@@ -39,26 +48,19 @@ class PluginRegistryService {
 
   bool isPluginInitOk(String uuid) => _pluginInitOk.contains(uuid);
 
-  final _initOkStreamController = StreamController<Set<String>>.broadcast();
-
-  /// init 成功集合流：后台任务等 init 跑完即广播，供 UI 显示“已就绪”。
-  Stream<Set<String>> get initOkStream => _initOkStreamController.stream;
-
-  Set<String> get initOkSnapshot => Set.unmodifiable(_pluginInitOk);
-
   void _markInitOk(String uuid) {
-    if (_pluginInitOk.add(uuid)) {
-      _initOkStreamController.add(initOkSnapshot);
-    }
+    _pluginInitOk.add(uuid);
   }
 
   void _clearInitOk(String uuid) {
-    if (_pluginInitOk.remove(uuid)) {
-      _initOkStreamController.add(initOkSnapshot);
-    }
+    _pluginInitOk.remove(uuid);
   }
 
-  ObjectBox? _objectbox;
+  /// 已持久化的 getInfo JSON 内存镜像：启动/刷新时从 DB 全量载入。
+  ///
+  /// 数据库访问全部异步，但 getInfo 兜底读取在若干同步路径（如发现页
+  /// 合并 DB 兜底）中被调用，因此这里缓存一份，写路径同步更新。
+  final Map<String, String> _persistedInfoJson = {};
   final Map<String, Map<String, dynamic>> _pluginInfoCache = {};
   final _infoStreamController =
       StreamController<Map<String, Map<String, dynamic>>>.broadcast();
@@ -106,25 +108,69 @@ class PluginRegistryService {
   }
 
   Future<void> init() async {
-    _objectbox = objectbox;
     await refreshFromDb();
   }
 
   Future<void> refreshFromDb() async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-
-    final list = objectbox.pluginInfoBox.getAll();
+    final list = await database.plugins.listInfos();
     _states
       ..clear()
       ..addEntries(list.map((item) => MapEntry(item.uuid, _toState(item))));
+    _persistedInfoJson
+      ..clear()
+      ..addEntries(
+        list.map((item) => MapEntry(item.uuid, item.getInfoJson.trim())),
+      );
+    _hydrateInfoCache(list);
     _emit();
+  }
+
+  /// 用数据库里的 `getInfoJson` 水合内存缓存，不执行任何插件脚本。
+  ///
+  /// 启动/同步后只需要展示插件基本信息，正常路径下 `getInfoJson` 在安装、
+  /// 更新、启用时就已写好；只有历史数据缺失或损坏时才由
+  /// [loadMissingPluginInfos] 补拉。
+  void _hydrateInfoCache(List<PluginInfo> list) {
+    _pluginInfoCache.clear();
+    for (final item in list) {
+      if (item.isDeleted) {
+        continue;
+      }
+      final raw = item.getInfoJson.trim();
+      if (raw.isEmpty) {
+        continue;
+      }
+      try {
+        final decoded = requireJsonMap(jsonDecode(raw));
+        if (decoded.isEmpty) {
+          continue;
+        }
+        _pluginInfoCache[item.uuid] = decoded;
+      } catch (e, st) {
+        logger.w('插件 getInfo 缓存解析失败: ${item.uuid}', error: e, stackTrace: st);
+      }
+    }
+
+    final local = _states[kLocalComicPluginId];
+    if (local != null && !local.isDeleted) {
+      _pluginInfoCache[kLocalComicPluginId] = localComicPluginInfo();
+    }
+
+    var errorChanged = false;
+    for (final uuid in _pluginInfoCache.keys) {
+      if (_infoErrorCache.remove(uuid) != null) {
+        errorChanged = true;
+      }
+    }
+    if (errorChanged) {
+      _infoErrorStreamController.add(infoErrorSnapshot);
+    }
+    _infoStreamController.add(infoSnapshot);
   }
 
   Future<void> reconcileAfterExternalSync({
     Map<String, PluginRuntimeState>? previousSnapshot,
+    Set<String> changedScriptUuids = const <String>{},
   }) async {
     final previous = Map<String, PluginRuntimeState>.from(
       previousSnapshot ?? snapshot,
@@ -141,7 +187,8 @@ class PluginRegistryService {
         return true;
       }
       return before.version != after.version ||
-          before.originScript != after.originScript ||
+          before.updatedAt != after.updatedAt ||
+          changedScriptUuids.contains(uuid) ||
           before.isEnabled != after.isEnabled ||
           before.isDeleted != after.isDeleted ||
           before.debug != after.debug ||
@@ -152,23 +199,29 @@ class PluginRegistryService {
       'affected=${affected.length} uuids=${affected.join(',')}',
     );
 
+    var infoFallbackNeeded = false;
     for (final uuid in affected) {
-      _dropInfoCache(uuid);
+      if (isLocalComicPluginId(uuid)) continue;
       _pluginInitDone.remove(uuid);
       _clearInitOk(uuid);
 
+      // 禁用/删除的插件不会重建 runtime，也不该执行 getInfo；
+      // 它们的基本信息保留 refreshFromDb 从 getInfoJson 水合的结果。
+      if (current[uuid]?.isActive != true) {
+        continue;
+      }
+      _dropInfoCache(uuid);
+
       final runtimeName = resolveRuntimeName(uuid);
       try {
-        final runtimeReady = await isQjsRuntimeInitialized(name: runtimeName);
-        if (runtimeReady) {
-          await qjsDropRuntime(runtimeName: runtimeName);
-        }
+        await PluginRuntimeManager.I.dropIfPresent(runtimeName);
       } catch (e, st) {
         logger.w('同步后清理插件 runtime 失败: $uuid', error: e, stackTrace: st);
       }
     }
 
     for (final uuid in affected) {
+      if (isLocalComicPluginId(uuid)) continue;
       final plugin = current[uuid];
       if (plugin == null || !plugin.isActive) {
         continue;
@@ -178,9 +231,16 @@ class PluginRegistryService {
       try {
         await ensurePluginRuntimeReady(plugin, runtimeName: runtimeName);
         await runPluginInitIfNeeded(plugin, runtimeName: runtimeName);
+        // 脚本可能随同步变化，重建 runtime 后刷新一次 getInfo 并持久化。
+        await fetchPluginInfo(uuid: plugin.uuid, runtimeName: runtimeName);
       } catch (e, st) {
+        infoFallbackNeeded = true;
         logger.w('同步后重建插件 runtime 失败: $uuid', error: e, stackTrace: st);
       }
+    }
+    if (infoFallbackNeeded) {
+      // 重建/刷新失败时回退到同步下发的 getInfoJson，至少保证基本信息可展示。
+      _hydrateInfoCache(await database.plugins.listInfos());
     }
     logger.d(
       '[plugin-sync] reconcile_done active=${current.values.where((e) => e.isActive).length}',
@@ -200,51 +260,49 @@ class PluginRegistryService {
     }
   }
 
-  Future<void> initializeActivePluginRuntimes() async {
-    final plugins = updateCheckTargets()
-        .where((plugin) => !_pluginInitDone.contains(plugin.uuid))
+  Future<void>? _missingInfoLoad;
+
+  /// 只给 DB 里没有可用 `getInfoJson` 的插件补拉 getInfo。
+  ///
+  /// 正常启动/同步路径直接读 DB 水合缓存；这里仅兜底历史版本安装的插件
+  /// （`getInfoJson` 为空或损坏）。重复调用共享同一个 in-flight future，
+  /// 避免 discover 页与启动流程同时拉同一批插件。
+  Future<void> loadMissingPluginInfos() {
+    final running = _missingInfoLoad;
+    if (running != null) {
+      return running;
+    }
+    final future = _loadMissingPluginInfos().whenComplete(() {
+      _missingInfoLoad = null;
+    });
+    _missingInfoLoad = future;
+    return future;
+  }
+
+  Future<void> _loadMissingPluginInfos() async {
+    final plugins = _states.values
+        .where(
+          (item) => !item.isDeleted && !_pluginInfoCache.containsKey(item.uuid),
+        )
         .toList();
     if (plugins.isEmpty) {
       return;
     }
-
-    await Future.wait(
-      plugins.map((plugin) async {
-        final runtimeName = resolveRuntimeName(plugin.uuid);
-        try {
-          await ensurePluginRuntimeReady(plugin, runtimeName: runtimeName);
-          await runPluginInitIfNeeded(plugin, runtimeName: runtimeName);
-        } catch (e, st) {
-          logger.w(
-            '插件 runtime 初始化失败: ${plugin.uuid}',
-            error: e,
-            stackTrace: st,
-          );
-        }
-      }),
-      eagerError: false,
-    );
-  }
-
-  Future<void> warmupPluginInfos() async {
-    await initializeGlobalRuntime();
-    final plugins = _states.values.where((item) => !item.isDeleted).toList();
-    await Future.wait(
-      plugins.map((plugin) async {
-        final runtimeName = resolveRuntimeName(plugin.uuid);
-        try {
-          await fetchPluginInfo(uuid: plugin.uuid, runtimeName: runtimeName);
-        } catch (e) {
-          logger.e(e);
-          await updateLoadResult(
-            plugin.uuid,
-            success: false,
-            error: e.toString(),
-          );
-        }
-      }),
-      eagerError: false,
-    );
+    // 串行补拉：每个 fetchPluginInfo 都会 spawn DB worker isolate + QJS runtime，
+    // 并发跑整批会和书架/首页的 isolate 抢 CPU 与数据库读。
+    for (final plugin in plugins) {
+      final runtimeName = resolveRuntimeName(plugin.uuid);
+      try {
+        await fetchPluginInfo(uuid: plugin.uuid, runtimeName: runtimeName);
+      } catch (e) {
+        logger.w('插件 getInfo 补拉失败: ${plugin.uuid}', error: e);
+        await updateLoadResult(
+          plugin.uuid,
+          success: false,
+          error: _qjsCallErrorMessage(e),
+        );
+      }
+    }
   }
 
   Future<Map<String, dynamic>> fetchPluginInfo({
@@ -256,23 +314,43 @@ class PluginRegistryService {
       throw StateError('插件不可用: $uuid');
     }
 
+    if (isLocalComicPluginId(uuid)) {
+      final info = localComicPluginInfo();
+      _pluginInfoCache[uuid] = info;
+      _infoStreamController.add(infoSnapshot);
+      if (_infoErrorCache.remove(uuid) != null) {
+        _infoErrorStreamController.add(infoErrorSnapshot);
+      }
+      await updateLoadResult(uuid, success: true, error: null);
+      return info;
+    }
+
     final onceRuntimeName = 'plugin_info_${uuid.replaceAll('-', '_')}';
     Map<String, dynamic> decoded;
     try {
-      final bundleJs = await _resolveBundleJs(plugin);
-      final bytes = await qjsTaskCall(
+      // getInfo 预热也走常驻 runtime：字节码命中时不读完整脚本。
+      await PluginRuntimeManager.I.install(
+        pluginId: uuid,
         runtimeName: onceRuntimeName,
+        pluginDebug: plugin.debug,
+        loadSource: () => _resolveBundleJs(plugin),
+      );
+      final result = await qjsTaskCall(
+        runtimeName: onceRuntimeName,
+        source: uuid,
         taskGroupKey: '',
-        isOnce: true,
-        bundleJs: bundleJs,
+        isOnce: false,
         fnPath: 'getInfo',
         argsJson: '{}',
       );
-      final raw = utf8.decode(bytes, allowMalformed: true);
+      final raw = utf8.decode(result.bytes, allowMalformed: true);
       decoded = requireJsonMap(jsonDecode(raw));
     } catch (e) {
-      _infoErrorCache[uuid] = e.toString();
+      _infoErrorCache[uuid] = _qjsCallErrorMessage(e);
       _infoErrorStreamController.add(infoErrorSnapshot);
+      if (e is QjsCallFailure) {
+        throw QjsCallException(source: e.source, message: e.message, cause: e);
+      }
       rethrow;
     }
     _pluginInfoCache[uuid] = decoded;
@@ -285,43 +363,32 @@ class PluginRegistryService {
     return decoded;
   }
 
-  /// 持久化 getInfo JSON 字符串到 ObjectBox（不清理 runtime / 内存 cache）。
+  /// 持久化 getInfo JSON 字符串（不清理 runtime / 内存 cache）。
   Future<void> persistGetInfoJson(String uuid, String getInfoJson) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
+    final normalized = getInfoJson.trim();
+    final found = await database.plugins.getInfoByUuid(uuid);
     if (found == null) {
       return;
     }
-    final normalized = getInfoJson.trim();
     if (found.getInfoJson == normalized) {
+      _persistedInfoJson[uuid] = normalized;
       return;
     }
     found.getInfoJson = normalized;
     // 仅缓存元数据，不改 updatedAt，避免触发无意义的同步冲突。
-    objectbox.pluginInfoBox.put(found);
+    await database.plugins.putInfo(found);
+    _persistedInfoJson[uuid] = normalized;
   }
 
-  /// 读取已持久化的 getInfo JSON 字符串。
+  /// 读取已持久化的 getInfo JSON 字符串（内存镜像，[refreshFromDb] 载入）。
   String readPersistedGetInfoJson(String uuid) {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return '';
-    }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
-    return found?.getInfoJson.trim() ?? '';
+    return _persistedInfoJson[uuid]?.trim() ?? '';
   }
 
   List<PluginRuntimeState> activePlugins() {
-    return _states.values.where((item) => item.isActive).toList()
+    return _states.values
+        .where((item) => item.isActive && !isLocalComicPluginId(item.uuid))
+        .toList()
       ..sort((a, b) => a.insertedAt.compareTo(b.insertedAt));
   }
 
@@ -334,16 +401,15 @@ class PluginRegistryService {
 
   List<PluginRuntimeState> orderedPlugins({bool includeDeleted = false}) {
     return sortPlugins(
-      _states.values.where((plugin) => includeDeleted || !plugin.isDeleted),
+      _states.values.where(
+        (plugin) =>
+            !isLocalComicPluginId(plugin.uuid) &&
+            (includeDeleted || !plugin.isDeleted),
+      ),
     );
   }
 
   Future<void> reorderPlugins(List<String> orderedUuids) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-
     final visible = orderedPlugins();
     final visibleByUuid = <String, PluginRuntimeState>{
       for (final plugin in visible) plugin.uuid: plugin,
@@ -361,13 +427,13 @@ class PluginRegistryService {
       }
     }
 
-    final infos = objectbox.pluginInfoBox.getAll();
+    final infos = await database.plugins.listInfos();
     final infoByUuid = <String, PluginInfo>{
       for (final info in infos)
         if (!info.isDeleted && info.uuid.trim().isNotEmpty) info.uuid: info,
     };
     final now = DateTime.now().toUtc();
-    var changed = false;
+    final changedInfos = <PluginInfo>[];
     for (var index = 0; index < normalizedUuids.length; index++) {
       final info = infoByUuid[normalizedUuids[index]];
       if (info == null || info.sortOrder == index) {
@@ -375,23 +441,18 @@ class PluginRegistryService {
       }
       info.sortOrder = index;
       info.updatedAt = now;
-      objectbox.pluginInfoBox.put(info);
+      changedInfos.add(info);
       _states[info.uuid] = _toState(info);
-      changed = true;
     }
-    if (changed) {
-      _emit();
+    if (changedInfos.isEmpty) {
+      return;
     }
+    await database.plugins.putInfos(changedInfos);
+    _emit();
   }
 
   Future<void> resetPluginOrder() async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-
-    final infos = objectbox.pluginInfoBox
-        .getAll()
+    final infos = (await database.plugins.listInfos())
         .where((info) => !info.isDeleted && info.sortOrder != null)
         .toList();
     if (infos.isEmpty) {
@@ -402,9 +463,9 @@ class PluginRegistryService {
     for (final info in infos) {
       info.sortOrder = null;
       info.updatedAt = now;
-      objectbox.pluginInfoBox.put(info);
       _states[info.uuid] = _toState(info);
     }
+    await database.plugins.putInfos(infos);
     _emit();
   }
 
@@ -423,17 +484,26 @@ class PluginRegistryService {
 
   List<String> getEnabledUuids() {
     return _states.values
-        .where((item) => item.isEnabled && !item.isDeleted)
+        .where(
+          (item) =>
+              item.isEnabled &&
+              !item.isDeleted &&
+              !isLocalComicPluginId(item.uuid),
+        )
         .map((item) => item.uuid)
         .toList();
   }
 
   int getActivePluginCount() {
-    return _states.values.where((item) => item.isActive).length;
+    return _states.values
+        .where((item) => item.isActive && !isLocalComicPluginId(item.uuid))
+        .length;
   }
 
   bool isAnyPluginEnabled() {
-    return _states.values.any((item) => item.isActive);
+    return _states.values.any(
+      (item) => item.isActive && !isLocalComicPluginId(item.uuid),
+    );
   }
 
   List<PluginRuntimeState> getSortedActivePlugins() {
@@ -441,12 +511,8 @@ class PluginRegistryService {
   }
 
   Future<void> upsert(PluginInfo info) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-
-    objectbox.pluginInfoBox.put(info);
+    await database.plugins.putInfoWithScript(info);
+    _persistedInfoJson[info.uuid] = info.getInfoJson.trim();
     _states[info.uuid] = _toState(info);
     _dropInfoCache(info.uuid);
     _pluginInitDone.remove(info.uuid);
@@ -455,22 +521,19 @@ class PluginRegistryService {
   }
 
   Future<void> setEnabled(String uuid, bool enabled) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
+    final found = await database.plugins.getInfoByUuid(uuid);
     if (found == null) {
       return;
     }
     found.isEnabled = enabled;
     found.updatedAt = DateTime.now().toUtc();
-    objectbox.pluginInfoBox.put(found);
+    await database.plugins.putInfo(found);
     _states[uuid] = _toState(found);
-    _dropInfoCache(uuid);
+    // 禁用不执行脚本，DB 里的 getInfo 仍然有效，保留缓存供列表展示；
+    // 只有启用需要丢弃旧缓存并在 runtime 就绪后重新拉取。
+    if (enabled) {
+      _dropInfoCache(uuid);
+    }
     _pluginInitDone.remove(uuid);
     _clearInitOk(uuid);
     _emit();
@@ -485,10 +548,7 @@ class PluginRegistryService {
       }
     } else {
       try {
-        final runtimeReady = await isQjsRuntimeInitialized(name: runtimeName);
-        if (runtimeReady) {
-          await qjsDropRuntime(runtimeName: runtimeName);
-        }
+        await PluginRuntimeManager.I.dropIfPresent(runtimeName);
       } catch (e, st) {
         logger.w('禁用插件时释放 runtime 失败: $uuid', error: e, stackTrace: st);
       }
@@ -500,21 +560,15 @@ class PluginRegistryService {
     required bool success,
     String? error,
   }) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
+    final found = await database.plugins.getInfoByUuid(uuid);
     if (found == null) {
       return;
     }
     found.lastLoadSuccess = success;
     found.lastLoadError = error;
-    found.updatedAt = DateTime.now().toUtc();
-    objectbox.pluginInfoBox.put(found);
+    // 加载结果只是本机运行状态。不能刷新 updatedAt，否则同步会把
+    // “这台设备加载得晚”当成元数据更新，覆盖其它设备的启停/排序等真实变更。
+    await database.plugins.putInfo(found);
     _states[uuid] = _toState(found);
     _emit();
   }
@@ -524,21 +578,14 @@ class PluginRegistryService {
     required bool debug,
     String? debugUrl,
   }) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
-      return;
-    }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
+    final found = await database.plugins.getInfoByUuid(uuid);
     if (found == null) {
       return;
     }
     found.debug = debug;
     found.debugUrl = debugUrl?.trim().isEmpty == true ? null : debugUrl?.trim();
     found.updatedAt = DateTime.now().toUtc();
-    objectbox.pluginInfoBox.put(found);
+    await database.plugins.putInfo(found);
     _states[uuid] = _toState(found);
     _pluginInitDone.remove(uuid);
     _clearInitOk(uuid);
@@ -556,33 +603,30 @@ class PluginRegistryService {
   }
 
   Future<void> deletePlugin(String uuid) async {
-    final objectbox = _objectbox;
-    if (objectbox == null) {
+    if (isLocalComicPluginId(uuid)) {
       return;
     }
-    final found = objectbox.pluginInfoBox
-        .query(PluginInfo_.uuid.equals(uuid))
-        .build()
-        .findFirst();
+    final found = await database.plugins.getInfoByUuid(uuid);
     if (found == null) {
       throw StateError('插件不存在: $uuid');
     }
 
     final runtimeName = resolveRuntimeName(uuid);
-    try {
-      final runtimeReady = await isQjsRuntimeInitialized(name: runtimeName);
-      if (runtimeReady) {
-        await qjsDropRuntime(runtimeName: runtimeName);
+    final infoRuntimeName = 'plugin_info_${uuid.replaceAll('-', '_')}';
+    for (final name in <String>[runtimeName, infoRuntimeName]) {
+      try {
+        await PluginRuntimeManager.I.dropIfPresent(name);
+      } catch (e, st) {
+        logger.e(e, stackTrace: st);
+        // runtime 失败不阻断删除主流程
       }
-    } catch (e, st) {
-      logger.e(e, stackTrace: st);
-      // runtime 失败不阻断删除主流程
     }
 
+    await PluginBytecodeCache.instance.delete(runtimeName);
     await _deletePluginDownloadFolders(uuid);
-    _deletePluginConfigs(objectbox, uuid);
-    _deletePluginRelatedData(objectbox, uuid);
-    _deletePluginDownloadTasks(objectbox, uuid);
+    await _deletePluginConfigs(uuid);
+    await _deletePluginRelatedData(uuid);
+    await _deletePluginDownloadTasks(uuid);
 
     final now = DateTime.now().toUtc();
     found
@@ -593,9 +637,11 @@ class PluginRegistryService {
       ..updatedAt = now
       ..lastLoadSuccess = false
       ..lastLoadError = null;
-    objectbox.pluginInfoBox.put(found);
+    // 空脚本会让 putInfoWithScript 在同一事务里删除 PluginScript 行。
+    await database.plugins.putInfoWithScript(found);
     _states[uuid] = _toState(found);
     _dropInfoCache(uuid);
+    _persistedInfoJson.remove(uuid);
     _pluginInitDone.remove(uuid);
     _clearInitOk(uuid);
     _emit();
@@ -616,79 +662,67 @@ class PluginRegistryService {
     }
   }
 
-  void _deletePluginRelatedData(ObjectBox objectbox, String uuid) {
-    final favorites = objectbox.unifiedFavoriteBox
-        .query(UnifiedComicFavorite_.source.equals(uuid))
-        .build()
-        .find();
-    final histories = objectbox.unifiedHistoryBox
-        .query(UnifiedComicHistory_.source.equals(uuid))
-        .build()
-        .find();
-    final downloads = objectbox.unifiedDownloadBox
-        .query(UnifiedComicDownload_.source.equals(uuid))
-        .build()
-        .find();
-
-    final now = DateTime.now().toUtc();
+  Future<void> _deletePluginRelatedData(String uuid) async {
+    final favorites = (await database.favorites.getAll())
+        .where((comic) => comic.source == uuid)
+        .toList();
+    final histories = (await database.histories.getAll())
+        .where((comic) => comic.source == uuid)
+        .toList();
+    final downloads = (await database.downloads.getAll())
+        .where((comic) => comic.source == uuid)
+        .toList();
 
     // 收藏/历史属于同步数据，应当软删除（标记 deleted），让同步能把删除传播出去。
     for (final comic in favorites) {
-      ComicLinkService.removeComicFromAll(
+      await ComicLinkService.removeComicFromAll(
         comic.uniqueKey,
         ComicFolderType.favorite,
       );
     }
 
-    for (final comic in histories) {
-      if (!comic.deleted) {
-        comic
-          ..deleted = true
-          ..updatedAt = now;
-        objectbox.unifiedHistoryBox.put(comic);
-      }
-      // 历史记录目前没有 ComicLink，只需要软删除本体即可。
-    }
+    // 历史记录没有 ComicLink，只需要软删除本体。
+    await database.histories.markDeletedByKeys(
+      histories
+          .where((comic) => !comic.deleted)
+          .map((comic) => comic.uniqueKey),
+    );
 
     // 下载记录不参与同步，直接物理删除。
     for (final comic in downloads) {
-      ComicLinkService.removeComicFromAll(
+      await ComicLinkService.removeComicFromAll(
         comic.uniqueKey,
         ComicFolderType.download,
       );
     }
   }
 
-  void _deletePluginDownloadTasks(ObjectBox objectbox, String uuid) {
-    final idsToDelete = objectbox.downloadTaskBox
-        .getAll()
-        .where((task) {
-          final info = task.taskInfo;
-          if (info == null) return false;
-          return info.from == uuid;
-        })
+  Future<void> _deletePluginDownloadTasks(String uuid) async {
+    final tasks = await database.downloadTasks.getAll();
+    final idsToDelete = tasks
+        .where((task) => task.taskInfo?.from == uuid)
         .map((task) => task.id)
         .toList();
     if (idsToDelete.isNotEmpty) {
-      objectbox.downloadTaskBox.removeMany(idsToDelete);
+      await database.downloadTasks.removeByIds(idsToDelete);
     }
   }
 
-  void _deletePluginConfigs(ObjectBox objectbox, String uuid) {
+  Future<void> _deletePluginConfigs(String uuid) async {
     final candidateNames = _buildPluginConfigNameCandidates(uuid);
     if (candidateNames.isEmpty) {
       return;
     }
 
-    final idsToDelete = objectbox.pluginConfigBox
-        .getAll()
+    final configs = await database.plugins.listConfigs();
+    final idsToDelete = configs
         .where((item) => candidateNames.contains(item.name.trim()))
         .map((item) => item.id)
         .toList();
     if (idsToDelete.isEmpty) {
       return;
     }
-    objectbox.pluginConfigBox.removeMany(idsToDelete);
+    await database.plugins.removeConfigByIds(idsToDelete);
   }
 
   Set<String> _buildPluginConfigNameCandidates(String uuid) {
@@ -732,16 +766,11 @@ class PluginRegistryService {
     PluginRuntimeState plugin, {
     required String runtimeName,
   }) async {
-    final bundleJs = await _resolveBundleJs(plugin);
-    await buildQjsRuntime(
-      request: QjsRuntimeBuildRequest(
-        runtimeName: runtimeName,
-        injectFilesystem: false,
-        bundle: QjsRuntimeBundleBuild(
-          bundleName: runtimeName,
-          bundleJs: bundleJs,
-        ),
-      ),
+    await PluginRuntimeManager.I.install(
+      pluginId: plugin.uuid,
+      runtimeName: runtimeName,
+      pluginDebug: plugin.debug,
+      loadSource: () => _resolveBundleJs(plugin),
     );
     _pluginInitDone.remove(plugin.uuid);
     _clearInitOk(plugin.uuid);
@@ -756,40 +785,34 @@ class PluginRegistryService {
     }
 
     // init 不需要等待结果，触发后即返回，避免阻塞安装/启用流程。
-    // 另起后台任务等 init 跑完：成功（或未实现视为成功）才记 _pluginInitOk，
-    // 失败不记，不阻塞、不抛。
-    Future(() async {
+    // 执行与去重由 PluginRuntimeManager 负责：成功（或未实现）才记
+    // _pluginInitOk，失败不记，不阻塞、不抛。
+    unawaited(() async {
       try {
-        // init 只等跑完：直接拿原始字节丢弃，不解码不解析返回值，
-        // void/undefined/空对象都算成功只有抛错才算失败。
-        await qjsTaskCall(
+        final outcome = await PluginRuntimeManager.I.ensureInit(
+          pluginId: plugin.uuid,
           runtimeName: runtimeName,
-          taskGroupKey: '',
-          isOnce: false,
-          fnPath: 'init',
-          argsJson: '{}',
         );
+        if (!outcome.success) {
+          await updateLoadResult(
+            plugin.uuid,
+            success: false,
+            error: 'init 执行失败: ${outcome.error}',
+          );
+          logger.w('插件 init 执行失败: ${plugin.uuid}', error: outcome.error);
+          return;
+        }
         _pluginInitDone.add(plugin.uuid);
         _markInitOk(plugin.uuid);
-        await updateLoadResult(plugin.uuid, success: true, error: null);
-      } catch (e) {
-        final err = e.toString();
-        if (err.contains('target is not function: init')) {
-          _pluginInitDone.add(plugin.uuid);
-          _markInitOk(plugin.uuid);
+        if (outcome.notImplemented) {
           logger.w('插件未实现 init，已跳过: ${plugin.uuid}');
           return;
         }
-        await updateLoadResult(
-          plugin.uuid,
-          success: false,
-          error: 'init 执行失败: $e',
-        );
-        logger.w('插件 init 执行失败: ${plugin.uuid}', error: e);
+        await updateLoadResult(plugin.uuid, success: true, error: null);
+      } catch (e) {
+        logger.w('插件 init 异步执行失败: ${plugin.uuid}', error: e);
       }
-    }).catchError((e) {
-      logger.w('插件 init 异步执行失败: ${plugin.uuid}', error: e);
-    });
+    }());
   }
 
   Future<String> _resolveBundleJs(PluginRuntimeState plugin) async {
@@ -812,7 +835,7 @@ class PluginRegistryService {
       }
     }
 
-    final dbBundle = _loadPluginBundleFromDb(plugin.uuid);
+    final dbBundle = await _loadPluginBundleFromDb(plugin.uuid);
     if (dbBundle != null) {
       logger.d('[plugin-bundle] source=db plugin=${plugin.uuid}');
       return dbBundle;
@@ -821,8 +844,8 @@ class PluginRegistryService {
     throw StateError('bundle_js不能为空: ${plugin.uuid}');
   }
 
-  String? _loadPluginBundleFromDb(String pluginId) {
-    final text = _states[pluginId]?.originScript ?? '';
+  Future<String?> _loadPluginBundleFromDb(String pluginId) async {
+    final text = await database.plugins.getScriptByUuid(pluginId);
     if (text.trim().isEmpty) {
       return null;
     }
@@ -833,7 +856,6 @@ class PluginRegistryService {
     return PluginRuntimeState(
       uuid: item.uuid,
       version: item.version,
-      originScript: item.originScript,
       isEnabled: item.isEnabled,
       isDeleted: item.isDeleted,
       debug: item.debug,

@@ -13,14 +13,29 @@ void main() {
     });
 
     test('双页切单页乘 2', () {
-      expect(mapSlotForDoublePageToggle(currentSlot: 0, toDoublePage: false), 0);
-      expect(mapSlotForDoublePageToggle(currentSlot: 1, toDoublePage: false), 2);
-      expect(mapSlotForDoublePageToggle(currentSlot: 3, toDoublePage: false), 6);
+      expect(
+        mapSlotForDoublePageToggle(currentSlot: 0, toDoublePage: false),
+        0,
+      );
+      expect(
+        mapSlotForDoublePageToggle(currentSlot: 1, toDoublePage: false),
+        2,
+      );
+      expect(
+        mapSlotForDoublePageToggle(currentSlot: 3, toDoublePage: false),
+        6,
+      );
     });
 
     test('负槽位按 0 处理', () {
-      expect(mapSlotForDoublePageToggle(currentSlot: -1, toDoublePage: true), 0);
-      expect(mapSlotForDoublePageToggle(currentSlot: -1, toDoublePage: false), 0);
+      expect(
+        mapSlotForDoublePageToggle(currentSlot: -1, toDoublePage: true),
+        0,
+      );
+      expect(
+        mapSlotForDoublePageToggle(currentSlot: -1, toDoublePage: false),
+        0,
+      );
     });
   });
 

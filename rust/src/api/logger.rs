@@ -306,3 +306,123 @@ impl Drop for LogHttpWriter {
         }
     }
 }
+
+// --- OpenHarmony HiLog writer ---
+
+/// 把 tracing 事件写入 OpenHarmony HiLog（`hdc shell hilog` 可见）。
+///
+/// 与 Android 的 `tracing_logcat` 对应：`BoxedFormatter` 把一个事件格式化成
+/// 多行盒子，writer drop 时整盒作为 hilog 记录发出。HiLog 单条长度有限，
+/// 超长内容（例如 base64 data URL）按 4 KB 切片，保持顺序。
+#[cfg(target_env = "ohos")]
+pub struct HilogMakeWriter {}
+
+#[cfg(target_env = "ohos")]
+pub struct HilogWriter {
+    level: i32,
+    buffer: Vec<u8>,
+}
+
+#[cfg(target_env = "ohos")]
+mod hilog_ffi {
+    use std::os::raw::{c_char, c_int, c_uint};
+
+    pub const LOG_APP: c_int = 0;
+    pub const LOG_DEBUG: c_int = 3;
+    pub const LOG_INFO: c_int = 4;
+    pub const LOG_WARN: c_int = 5;
+    pub const LOG_ERROR: c_int = 6;
+
+    #[link(name = "hilog_ndk.z")]
+    unsafe extern "C" {
+        pub fn OH_LOG_Print(
+            log_type: c_int,
+            level: c_int,
+            domain: c_uint,
+            tag: *const c_char,
+            fmt: *const c_char,
+            ...
+        ) -> c_int;
+    }
+}
+
+#[cfg(target_env = "ohos")]
+fn hilog_level(level: tracing::Level) -> i32 {
+    match level {
+        tracing::Level::ERROR => hilog_ffi::LOG_ERROR,
+        tracing::Level::WARN => hilog_ffi::LOG_WARN,
+        tracing::Level::INFO => hilog_ffi::LOG_INFO,
+        tracing::Level::DEBUG | tracing::Level::TRACE => hilog_ffi::LOG_DEBUG,
+    }
+}
+
+#[cfg(target_env = "ohos")]
+fn write_hilog(level: i32, message: &str) {
+    use std::ffi::CString;
+
+    // `%{public}s` 是 HiLog 的隐私标识语法，显式声明内容可公开。
+    let tag = c"windcore";
+    let fmt = c"%{public}s";
+    for chunk in message.as_bytes().chunks(4096) {
+        let text = String::from_utf8_lossy(chunk);
+        let Ok(msg) = CString::new(text.as_bytes()) else {
+            continue;
+        };
+        // SAFETY: tag/fmt 是静态 NUL 结尾字符串，msg 由 CString 保证 NUL 结尾。
+        unsafe {
+            hilog_ffi::OH_LOG_Print(
+                hilog_ffi::LOG_APP,
+                level,
+                0,
+                tag.as_ptr(),
+                fmt.as_ptr(),
+                msg.as_ptr(),
+            );
+        }
+    }
+}
+
+#[cfg(target_env = "ohos")]
+impl<'a> MakeWriter<'a> for HilogMakeWriter {
+    type Writer = HilogWriter;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        HilogWriter {
+            level: hilog_ffi::LOG_INFO,
+            buffer: Vec::new(),
+        }
+    }
+
+    fn make_writer_for(&'a self, meta: &tracing::Metadata<'_>) -> Self::Writer {
+        HilogWriter {
+            level: hilog_level(*meta.level()),
+            buffer: Vec::new(),
+        }
+    }
+}
+
+#[cfg(target_env = "ohos")]
+impl std::io::Write for HilogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(target_env = "ohos")]
+impl Drop for HilogWriter {
+    fn drop(&mut self) {
+        if self.buffer.is_empty() {
+            return;
+        }
+        let message = String::from_utf8_lossy(&self.buffer);
+        let message = message.trim_end_matches(|c| c == '\n' || c == '\r');
+        if !message.is_empty() {
+            write_hilog(self.level, message);
+        }
+    }
+}

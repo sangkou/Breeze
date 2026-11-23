@@ -77,7 +77,10 @@ class UnifiedPluginPreviewResponse {
   final UnifiedPluginPreviewPaging paging;
   final List<UnifiedPluginPreviewItem> items;
 
-  factory UnifiedPluginPreviewResponse.fromMap(Map<String, dynamic> map) {
+  factory UnifiedPluginPreviewResponse.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = asJsonMap(map['data']);
     final preview = data.isNotEmpty ? asJsonMap(data['preview']) : const {};
     final body = preview.isNotEmpty
@@ -90,7 +93,7 @@ class UnifiedPluginPreviewResponse {
         .toList();
 
     return UnifiedPluginPreviewResponse(
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       comicId: map['comicId']?.toString() ?? '',
       extern: asJsonMap(map['extern']),
       scheme: asJsonMap(map['scheme']),

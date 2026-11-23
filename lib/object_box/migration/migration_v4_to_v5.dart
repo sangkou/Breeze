@@ -1,94 +1,108 @@
 import 'dart:convert';
 
+import 'package:zephyr/database/database.dart';
 import 'package:zephyr/main.dart';
-import 'package:zephyr/object_box/object_box.dart';
+import 'package:zephyr/object_box/model.dart';
 
-Future<void> migrateV4ToV5() async {
-  await objectbox.store.runAsync<void, void>((store, _) {
-    final objectboxTemp = ObjectBox.fromStore(store);
-    _migrateFavorites(objectboxTemp);
-    _migrateHistories(objectboxTemp);
-    _migrateDownloads(objectboxTemp);
-  }, null);
-  logger.d('[migration_v4_to_v5] done');
-}
-
-void _migrateFavorites(ObjectBox objectbox) {
-  final all = objectbox.unifiedFavoriteBox.getAll();
-  var changed = 0;
-  for (final item in all) {
+Future<void> migrateV4ToV5(Database database) async {
+  final favorites = await database.favorites.getAll();
+  final changedFavorites = <UnifiedComicFavorite>[];
+  for (final item in favorites) {
+    var changed = false;
     final newCover = _renameExtensionToExternInJsonString(item.cover);
     final newCreator = _renameExtensionToExternInJsonString(item.creator);
     final newTitleMeta = _renameExtensionToExternInJsonString(item.titleMeta);
     final newMetadata = _renameExtensionToExternInJsonString(item.metadata);
-    if (newCover == null &&
-        newCreator == null &&
-        newTitleMeta == null &&
-        newMetadata == null) {
-      continue;
+    if (newCover != null) {
+      item.cover = newCover;
+      changed = true;
     }
-    if (newCover != null) item.cover = newCover;
-    if (newCreator != null) item.creator = newCreator;
-    if (newTitleMeta != null) item.titleMeta = newTitleMeta;
-    if (newMetadata != null) item.metadata = newMetadata;
-    objectbox.unifiedFavoriteBox.put(item);
-    changed++;
+    if (newCreator != null) {
+      item.creator = newCreator;
+      changed = true;
+    }
+    if (newTitleMeta != null) {
+      item.titleMeta = newTitleMeta;
+      changed = true;
+    }
+    if (newMetadata != null) {
+      item.metadata = newMetadata;
+      changed = true;
+    }
+    if (changed) changedFavorites.add(item);
   }
-  logger.d('[migration_v4_to_v5] updated UnifiedComicFavorite: $changed');
-}
+  await database.favorites.putMany(changedFavorites);
 
-void _migrateHistories(ObjectBox objectbox) {
-  final all = objectbox.unifiedHistoryBox.getAll();
-  var changed = 0;
-  for (final item in all) {
+  final histories = await database.histories.getAll();
+  final changedHistories = <UnifiedComicHistory>[];
+  for (final item in histories) {
+    var changed = false;
     final newCover = _renameExtensionToExternInJsonString(item.cover);
     final newCreator = _renameExtensionToExternInJsonString(item.creator);
     final newTitleMeta = _renameExtensionToExternInJsonString(item.titleMeta);
     final newMetadata = _renameExtensionToExternInJsonString(item.metadata);
-    if (newCover == null &&
-        newCreator == null &&
-        newTitleMeta == null &&
-        newMetadata == null) {
-      continue;
+    if (newCover != null) {
+      item.cover = newCover;
+      changed = true;
     }
-    if (newCover != null) item.cover = newCover;
-    if (newCreator != null) item.creator = newCreator;
-    if (newTitleMeta != null) item.titleMeta = newTitleMeta;
-    if (newMetadata != null) item.metadata = newMetadata;
-    objectbox.unifiedHistoryBox.put(item);
-    changed++;
+    if (newCreator != null) {
+      item.creator = newCreator;
+      changed = true;
+    }
+    if (newTitleMeta != null) {
+      item.titleMeta = newTitleMeta;
+      changed = true;
+    }
+    if (newMetadata != null) {
+      item.metadata = newMetadata;
+      changed = true;
+    }
+    if (changed) changedHistories.add(item);
   }
-  logger.d('[migration_v4_to_v5] updated UnifiedComicHistory: $changed');
-}
+  await database.histories.putMany(changedHistories);
 
-void _migrateDownloads(ObjectBox objectbox) {
-  final all = objectbox.unifiedDownloadBox.getAll();
-  var changed = 0;
-  for (final item in all) {
+  final downloads = await database.downloads.getAll();
+  final changedDownloads = <UnifiedComicDownload>[];
+  for (final item in downloads) {
+    var changed = false;
     final newCover = _renameExtensionToExternInJsonString(item.cover);
     final newCreator = _renameExtensionToExternInJsonString(item.creator);
     final newTitleMeta = _renameExtensionToExternInJsonString(item.titleMeta);
     final newMetadata = _renameExtensionToExternInJsonString(item.metadata);
     final newChapters = _renameExtensionToExternInJsonString(item.chapters);
     final newDetailJson = _renameExtensionToExternInJsonString(item.detailJson);
-    if (newCover == null &&
-        newCreator == null &&
-        newTitleMeta == null &&
-        newMetadata == null &&
-        newChapters == null &&
-        newDetailJson == null) {
-      continue;
+    if (newCover != null) {
+      item.cover = newCover;
+      changed = true;
     }
-    if (newCover != null) item.cover = newCover;
-    if (newCreator != null) item.creator = newCreator;
-    if (newTitleMeta != null) item.titleMeta = newTitleMeta;
-    if (newMetadata != null) item.metadata = newMetadata;
-    if (newChapters != null) item.chapters = newChapters;
-    if (newDetailJson != null) item.detailJson = newDetailJson;
-    objectbox.unifiedDownloadBox.put(item);
-    changed++;
+    if (newCreator != null) {
+      item.creator = newCreator;
+      changed = true;
+    }
+    if (newTitleMeta != null) {
+      item.titleMeta = newTitleMeta;
+      changed = true;
+    }
+    if (newMetadata != null) {
+      item.metadata = newMetadata;
+      changed = true;
+    }
+    if (newChapters != null) {
+      item.chapters = newChapters;
+      changed = true;
+    }
+    if (newDetailJson != null) {
+      item.detailJson = newDetailJson;
+      changed = true;
+    }
+    if (changed) changedDownloads.add(item);
   }
-  logger.d('[migration_v4_to_v5] updated UnifiedComicDownload: $changed');
+  await database.downloads.putMany(changedDownloads);
+
+  logger.d(
+    '[migration_v4_to_v5] favorite=${changedFavorites.length}, '
+    'history=${changedHistories.length}, download=${changedDownloads.length}',
+  );
 }
 
 String? _renameExtensionToExternInJsonString(String jsonStr) {

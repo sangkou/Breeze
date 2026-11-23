@@ -9,7 +9,9 @@ import 'package:photo_view/photo_view.dart';
 import 'package:zephyr/config/global/global.dart';
 import 'package:zephyr/i18n/strings.g.dart';
 import 'package:zephyr/page/comic_info/method/export_comic.dart';
-import 'package:zephyr/util/error_filter.dart';
+import 'package:zephyr/util/error/error_filter.dart';
+import 'package:zephyr/util/ohos/platform.dart';
+import 'package:zephyr/util/ohos/file_bridge.dart';
 import 'package:zephyr/widgets/toast.dart';
 
 import 'package:zephyr/main.dart';
@@ -70,7 +72,7 @@ class FullScreenImagePage extends StatelessWidget {
                       ),
                     );
                   }
-                } else if (Platform.isAndroid || Platform.isIOS) {
+                } else if (Platform.isAndroid || Platform.isIOS || isOhos) {
                   // 移动端 (iOS & Android) 使用 gal 插件保存到相册
                   await _saveImageMobile(imagePath);
                 }
@@ -113,6 +115,27 @@ class FullScreenImagePage extends StatelessWidget {
   // 移动端保存逻辑：利用 gal 写入系统相册
   Future<void> _saveImageMobile(String inputImagePath) async {
     try {
+      if (isOhos) {
+        // OHOS：走系统相册保存对话框（photoAccessHelper），不依赖 gal。
+        final inputFile = File(inputImagePath);
+        final ext = await detectImageExtension(inputFile);
+        final tempFile = await inputFile.copy(
+          p.join(
+            Directory.systemTemp.path,
+            '${DateTime.now().millisecondsSinceEpoch}$ext',
+          ),
+        );
+        try {
+          await saveImageToOhosGallery(tempFile.path);
+          showSuccessToast(t.reader.imageSavedToAlbum);
+        } finally {
+          try {
+            await tempFile.delete();
+          } catch (_) {}
+        }
+        return;
+      }
+
       // 检查是否已有相册写入权限，如果没有则申请
       if (!await Gal.hasAccess()) {
         await Gal.requestAccess();

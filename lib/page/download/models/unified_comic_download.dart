@@ -273,9 +273,20 @@ List<UnifiedComicDownloadStoredChapter> resolveStoredDownloadChaptersFromJson({
 /// fallback。返回的 [DownloadChapter] 已经把各种 legacy 字段（`logicalKey` /
 /// `taskChapterId` / `storageChapterId` 等）统一成语义清晰的内部模型。
 List<DownloadChapter> resolveDownloadChapters(UnifiedComicDownload comic) {
+  return resolveDownloadChaptersFromJson(
+    chaptersJson: comic.chapters,
+    detailJson: comic.detailJson,
+  );
+}
+
+/// 纯 JSON 入口（可在 worker isolate 内调用）。
+List<DownloadChapter> resolveDownloadChaptersFromJson({
+  required String chaptersJson,
+  required String detailJson,
+}) {
   const adapter = DownloadChapterAdapter();
 
-  final mainChapters = _decodeListOfMaps(comic.chapters)
+  final mainChapters = _decodeListOfMaps(chaptersJson)
       .map(adapter.fromStoredMap)
       .toList();
 
@@ -283,7 +294,7 @@ List<DownloadChapter> resolveDownloadChapters(UnifiedComicDownload comic) {
     return mainChapters;
   }
 
-  final detailChapters = _decodeStoredChaptersFromDetailJson(comic.detailJson)
+  final detailChapters = _decodeStoredChaptersFromDetailJson(detailJson)
       .map((chapter) => adapter.fromStoredMap(chapter.toMap()))
       .toList();
 

@@ -69,8 +69,11 @@ class _FolderTargetPickerDialog extends StatefulWidget {
 }
 
 class _FolderTargetPickerDialogState extends State<_FolderTargetPickerDialog> {
-  late List<ComicFolder> _folders;
-  late Map<String, String> _pathMap;
+  List<ComicFolder> _folders = const <ComicFolder>[];
+  Map<String, String> _pathMap = const <String, String>{};
+
+  /// 文件夹是异步查的，首次进入先显示加载态，避免闪一下「没有文件夹」。
+  bool _loading = true;
   late final Set<String> _selectedPaths;
   final Set<String> _expandedPaths = <String>{};
   late final TextEditingController _searchController;
@@ -90,16 +93,22 @@ class _FolderTargetPickerDialogState extends State<_FolderTargetPickerDialog> {
     super.dispose();
   }
 
-  void _reloadFolders() {
-    _folders = ComicFolderService.listAllFolders(widget.type);
-    final syncIdMap = {for (final folder in _folders) folder.syncId: folder};
-    _pathMap = {
-      for (final folder in _folders)
-        folder.syncId: ComicFolderService.folderPath(
-          folder,
-          syncIdMap: syncIdMap,
-        ),
-    };
+  Future<void> _reloadFolders() async {
+    // 上游把文件夹查询改成了异步，这里跟着改成 await + setState。
+    final folders = await ComicFolderService.listAllFolders(widget.type);
+    if (!mounted) return;
+    final syncIdMap = {for (final folder in folders) folder.syncId: folder};
+    setState(() {
+      _folders = folders;
+      _loading = false;
+      _pathMap = {
+        for (final folder in folders)
+          folder.syncId: ComicFolderService.folderPath(
+            folder,
+            syncIdMap: syncIdMap,
+          ),
+      };
+    });
   }
 
   List<String> get _terms => splitFolderSearchTerms(_query);
@@ -134,13 +143,14 @@ class _FolderTargetPickerDialogState extends State<_FolderTargetPickerDialog> {
     final name = await _askFolderName(context);
     if (name == null || name.trim().isEmpty || !mounted) return;
     try {
-      final folder = ComicFolderService.createFolder(
+      final folder = await ComicFolderService.createFolder(
         kComicFolderRootPath,
         name.trim(),
         widget.type,
       );
+      await _reloadFolders();
+      if (!mounted) return;
       setState(() {
-        _reloadFolders();
         final newPath = _pathMap[folder.syncId] ?? '/${folder.name}';
         if (!widget.multiSelect) _selectedPaths.clear();
         _selectedPaths.add(newPath);
@@ -179,7 +189,9 @@ class _FolderTargetPickerDialogState extends State<_FolderTargetPickerDialog> {
             _buildSearchField(),
             const SizedBox(height: 8),
             Expanded(
-              child: terms.isEmpty
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : terms.isEmpty
                   ? _buildFolderTree()
                   : _buildSearchResults(terms),
             ),

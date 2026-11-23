@@ -1,5 +1,5 @@
 import 'package:material_ui/material_ui.dart';
-import 'package:zephyr/util/debouncer.dart';
+import 'package:zephyr/util/device/responsive.dart';
 
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry.dart';
 import 'package:zephyr/widgets/comic_simplify_entry/comic_simplify_entry_info.dart';

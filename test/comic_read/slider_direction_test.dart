@@ -8,8 +8,8 @@ import 'package:zephyr/page/comic_read/cubit/reader_cubit.dart';
 import 'package:zephyr/page/comic_read/widgets/controls/slider.dart';
 import 'package:zephyr/page/comic_read/widgets/layout/read_layout.dart';
 
-/// 直接 emit 预设 state，不走 updateReadSetting（后者会写 ObjectBox，
-/// Windows 下 `flutter test` 缺 objectbox.dll 跑不起来）。
+/// 直接 emit 预设 state，不走 updateReadSetting（后者会写数据库，
+/// 组件测试不需要真实 IO）。
 Widget _harness({
   required GlobalSettingCubit globalCubit,
   required ComicReadPreferenceCubit preferenceCubit,

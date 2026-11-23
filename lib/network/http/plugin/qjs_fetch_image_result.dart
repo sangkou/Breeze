@@ -4,6 +4,7 @@ import 'package:typed_data/typed_buffers.dart' as typed_data;
 
 class QjsFetchImageHttpResult {
   const QjsFetchImageHttpResult({
+    required this.source,
     required this.bytes,
     this.statusCode,
     this.responseBodyLength,
@@ -12,12 +13,16 @@ class QjsFetchImageHttpResult {
 
   static const int cborVersion = 1;
 
+  final String source;
   final Uint8List bytes;
   final int? statusCode;
   final int? responseBodyLength;
   final String? error;
 
-  factory QjsFetchImageHttpResult.fromCbor(Object? decoded) {
+  factory QjsFetchImageHttpResult.fromCbor(
+    Object? decoded, {
+    required String source,
+  }) {
     if (decoded is! Map) {
       throw const FormatException('图片请求结果 CBOR 不是对象');
     }
@@ -28,6 +33,7 @@ class QjsFetchImageHttpResult {
     }
 
     return QjsFetchImageHttpResult(
+      source: source,
       bytes: _readBytes(decoded['bytes']),
       statusCode: _readNullableInt(decoded['statusCode'], field: 'statusCode'),
       responseBodyLength: _readNullableInt(

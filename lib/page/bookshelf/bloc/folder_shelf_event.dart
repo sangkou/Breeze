@@ -7,6 +7,8 @@ part 'folder_shelf_event.freezed.dart';
 sealed class FolderShelfEvent with _$FolderShelfEvent {
   const factory FolderShelfEvent.loadRequested({SearchStatusState? search}) =
       FolderShelfLoadRequested;
+  const factory FolderShelfEvent.loadMoreRequested() =
+      FolderShelfLoadMoreRequested;
   const factory FolderShelfEvent.enterFolder(String path) =
       FolderShelfEnterFolder;
   const factory FolderShelfEvent.goBack() = FolderShelfGoBack;

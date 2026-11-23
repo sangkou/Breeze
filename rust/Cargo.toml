@@ -70,12 +70,18 @@ terminal_size = "0.4.4"
 ferrous-opencc = { version = "0.4.0", features = ["japanese-conversion"] }
 brotli = "8.0.4"
 sevenz-rust = "0.6.1"
+tar = "0.4.44"
 webp = "0.3.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_bytes = "0.11.19"
+lmdb = "0.8.0"
+# SQLite 使用 bundled：随 crate 编译 SQLite amalgamation 源码，
+# 不链接系统/预编译 sqlite3 动态库。
+rusqlite = { version = "0.43.0", features = ["bundled", "hooks"] }
 serde-xml-rs = "0.8.2"
 ciborium = "0.2.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+rars = { version = "0.12.4", default-features = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15.1"
@@ -111,4 +117,4 @@ host-fronting = ["rquickjs_playground/host-fronting"]
 
 [patch.crates-io]
 # quickjs-ng 0.15.1 + 安全/性能补丁，补丁清单见 fork 仓库的 PATCHES.md。
-rquickjs-sys = { git = "https://github.com/deretame/breeze-rquickjs-sys", rev = "846889c482ee7511f558595384673f55c00c9f4a" }
+rquickjs-sys = { git = "https://github.com/deretame/breeze-rquickjs-sys", rev = "e26cb76ba763f398cd3187c8bd1b508b23af3816" }

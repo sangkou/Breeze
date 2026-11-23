@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:zephyr/main.dart';
 import 'package:zephyr/object_box/model.dart';
-import 'package:zephyr/object_box/objectbox.g.dart';
 import 'package:zephyr/page/bookshelf/service/comic_link_service.dart';
 import 'package:zephyr/service/download/download_queue_manager.dart';
 import 'package:zephyr/page/comic_info/json/normal/normal_comic_all_info.dart';
@@ -40,7 +39,7 @@ Future<DeleteDownloadedChapterResult> deleteDownloadedChapter({
   required String chapterKey,
 }) async {
   const repository = DownloadTaskRepository();
-  final pending = repository.findByChapterKey(
+  final pending = await repository.findByChapterKey(
     from: from,
     comicId: comicId,
     chapterKey: chapterKey,
@@ -50,7 +49,7 @@ Future<DeleteDownloadedChapterResult> deleteDownloadedChapter({
     throw StateError('章节还有未完成的下载任务，请先取消');
   }
 
-  final record = repository.findDownloadRecord(from, comicId);
+  final record = await repository.findDownloadRecord(from, comicId);
   if (record == null) return DeleteDownloadedChapterResult.notFound;
 
   final storedChapters = resolveStoredDownloadChapters(record).toList();
@@ -106,7 +105,7 @@ Future<DeleteDownloadedChapterResult> deleteDownloadedChapter({
     ..chapters = jsonEncode(storedChapters.map((e) => e.toMap()).toList())
     ..detailJson = jsonEncode(updatedDetail.toJson())
     ..updatedAt = DateTime.now().toUtc();
-  objectbox.unifiedDownloadBox.put(record);
+  await database.downloads.put(record);
 
   logger.i('已删除下载章节: $from:$comicId chapter=$chapterKey');
   return DeleteDownloadedChapterResult.chapterDeleted;
@@ -121,14 +120,9 @@ Future<void> deleteWholeComicDownload({
 }) async {
   final uniqueKey = buildDownloadTaskKey(from, comicId);
   // 先取消同漫画的所有排队任务，否则 worker 跑起来会重建下载记录。
-  final pending = objectbox.downloadTaskBox
-      .query(
-        DownloadTask_.isCompleted
-            .equals(false)
-            .and(DownloadTask_.comicId.equals(comicId.trim())),
-      )
-      .build()
-      .find();
+  final pending = (await database.downloadTasks.listByComicId(comicId.trim()))
+      .where((task) => !task.isCompleted)
+      .toList();
   for (final task in pending) {
     String? chapterKey;
     try {
@@ -141,7 +135,7 @@ Future<void> deleteWholeComicDownload({
       chapterKey = null;
     }
     if (chapterKey == null || chapterKey.isEmpty) {
-      objectbox.downloadTaskBox.remove(task.id);
+      await database.downloadTasks.removeById(task.id);
       continue;
     }
     await DownloadQueueManager.instance.cancelChapterTask(
@@ -150,14 +144,17 @@ Future<void> deleteWholeComicDownload({
       chapterKey: chapterKey,
     );
   }
-  final record = const DownloadTaskRepository().findDownloadRecord(
+  final record = await const DownloadTaskRepository().findDownloadRecord(
     from,
     comicId,
   );
   if (record != null) {
-    objectbox.unifiedDownloadBox.remove(record.id);
+    await database.downloads.removeById(record.id);
   }
-  ComicLinkService.removeComicFromAll(uniqueKey, ComicFolderType.download);
+  await ComicLinkService.removeComicFromAll(
+    uniqueKey,
+    ComicFolderType.download,
+  );
   await deleteComicDownloadDirectory(from, comicId);
   logger.i('已删除整本下载: $uniqueKey');
 }

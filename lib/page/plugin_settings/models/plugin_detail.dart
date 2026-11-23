@@ -19,11 +19,14 @@ class PluginDetail {
   final String creatorIconUrl;
   final String home;
 
-  factory PluginDetail.fromMap(Map<String, dynamic> map) {
+  factory PluginDetail.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = asJsonMap(map['data']);
     final creator = asJsonMap(data['creator']);
     return PluginDetail(
-      source: map['source']?.toString().trim() ?? '',
+      source: source.trim(),
       describe: data['describe']?.toString().trim() ?? '',
       creatorName: creator['name']?.toString().trim() ?? '',
       creatorDescribe: creator['describe']?.toString().trim() ?? '',

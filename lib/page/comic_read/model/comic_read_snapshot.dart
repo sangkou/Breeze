@@ -16,13 +16,19 @@ class ComicReadSnapshot {
   final List<ComicReadSnapshotChapterRef> chapters;
   final Map<String, dynamic> extern;
 
-  factory ComicReadSnapshot.fromMap(Map<String, dynamic> map) {
+  factory ComicReadSnapshot.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     final data = _asMap(map['data']);
     final snapshot = data.isNotEmpty ? data : map;
 
     return ComicReadSnapshot(
-      source: map['source']?.toString() ?? '',
-      comic: ComicReadSnapshotComic.fromMap(_asMap(snapshot['comic'])),
+      source: source.trim(),
+      comic: ComicReadSnapshotComic.fromMap(
+        _asMap(snapshot['comic']),
+        source: source,
+      ),
       chapter: ComicReadSnapshotChapter.fromMap(_asMap(snapshot['chapter'])),
       chapters: _asList(snapshot['chapters'])
           .map((item) => ComicReadSnapshotChapterRef.fromMap(_asMap(item)))
@@ -73,10 +79,13 @@ class ComicReadSnapshotComic {
   final String title;
   final Map<String, dynamic> extern;
 
-  factory ComicReadSnapshotComic.fromMap(Map<String, dynamic> map) {
+  factory ComicReadSnapshotComic.fromMap(
+    Map<String, dynamic> map, {
+    required String source,
+  }) {
     return ComicReadSnapshotComic(
       id: map['id']?.toString() ?? '',
-      source: map['source']?.toString() ?? '',
+      source: source.trim(),
       title: map['title']?.toString() ?? '',
       extern: _asMap(map['extern']),
     );

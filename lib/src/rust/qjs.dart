@@ -7,6 +7,31 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+/// bundle 安装结果。
+///
+/// `used_bytecode=true` 表示走了预编译字节码快速路径；否则是源码加载，
+/// `bytecode_error` 记录了字节码不可用的原因（None 表示本次本来就没有字节码）。
+class QjsBundleInstallResult {
+  final bool usedBytecode;
+  final String? bytecodeError;
+
+  const QjsBundleInstallResult({
+    required this.usedBytecode,
+    this.bytecodeError,
+  });
+
+  @override
+  int get hashCode => usedBytecode.hashCode ^ bytecodeError.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QjsBundleInstallResult &&
+          runtimeType == other.runtimeType &&
+          usedBytecode == other.usedBytecode &&
+          bytecodeError == other.bytecodeError;
+}
+
 class QjsCancelTasksByGroupResult {
   final int cancelled;
   final int notFound;
@@ -61,13 +86,18 @@ class QjsRuntimeBundleBuild {
   final String bundleName;
   final String bundleJs;
 
+  /// 可选的预编译字节码（含宿主缓存头）。校验不过或加载失败会自动回退源码。
+  final Uint8List? bytecode;
+
   const QjsRuntimeBundleBuild({
     required this.bundleName,
     required this.bundleJs,
+    this.bytecode,
   });
 
   @override
-  int get hashCode => bundleName.hashCode ^ bundleJs.hashCode;
+  int get hashCode =>
+      bundleName.hashCode ^ bundleJs.hashCode ^ bytecode.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -75,5 +105,6 @@ class QjsRuntimeBundleBuild {
       other is QjsRuntimeBundleBuild &&
           runtimeType == other.runtimeType &&
           bundleName == other.bundleName &&
-          bundleJs == other.bundleJs;
+          bundleJs == other.bundleJs &&
+          bytecode == other.bytecode;
 }
